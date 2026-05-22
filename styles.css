@@ -1,0 +1,80 @@
+/* excaVelo styles */
+
+/* Custom context callout */
+.callout[data-callout="context"] {
+  --callout-color: 96, 165, 250;
+}
+
+/* Chooser modal */
+.excavelo-chooser-modal .template-item {
+  padding: 10px 12px;
+  cursor: pointer;
+  border-radius: 6px;
+  border: 1px solid transparent;
+}
+.excavelo-chooser-modal .template-item:hover,
+.excavelo-chooser-modal .template-item.is-selected {
+  background-color: var(--background-modifier-hover);
+  border-color: var(--background-modifier-border);
+}
+.excavelo-chooser-modal .template-item .template-name {
+  font-weight: 600;
+}
+.excavelo-chooser-modal .template-item .template-desc {
+  font-size: 0.85em;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* Preview modal */
+.excavelo-preview-modal {
+  width: min(900px, 90vw);
+}
+.excavelo-preview-modal .preview-body {
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background-color: var(--background-secondary);
+}
+.excavelo-preview-modal .preview-footer {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.excavelo-preview-modal .preview-footer button.mod-cta {
+  font-weight: 600;
+}
+.excavelo-preview-modal .preview-meta {
+  font-size: 0.85em;
+  color: var(--text-muted);
+  margin-top: 8px;
+}
+
+/* Status bar item */
+.excavelo-status-bar {
+  cursor: pointer;
+}
+.excavelo-status-bar.is-busy {
+  color: var(--text-accent);
+}
+
+/* Settings panel */
+.excavelo-settings .auth-method-card {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+.excavelo-settings .detection-status {
+  font-size: 0.9em;
+  color: var(--text-muted);
+}
+.excavelo-settings .detection-status.is-ok {
+  color: var(--text-success);
+}
+.excavelo-settings .detection-status.is-err {
+  color: var(--text-error);
+}

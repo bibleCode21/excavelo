@@ -1,0 +1,39 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Other package managers' lockfiles — we use pnpm
+package-lock.json
+yarn.lock
+bun.lockb
+
+# Build output
+main.js
+main.js.map
+*.tsbuildinfo
+
+# Plugin runtime data (contains API keys when developing against a real vault)
+data.json
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Claude Code / agents local state (re-derivable; machine-specific)
+.claude/settings.local.json
+.claude/skills/
+.agents/skills/
+
+# Test vaults / scratch
+.test-vault/
+scratch/
