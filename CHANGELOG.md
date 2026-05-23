@@ -5,16 +5,24 @@ All notable changes to excaVelo are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.3.1] - 2026-05-23
+## [1.3.2] - 2026-05-23
 
 ### Added
 
-- **GitHub Actions release workflow** (`.github/workflows/release.yml`). On any push of a SemVer-shaped tag (e.g. `1.3.1`), the workflow checks out, installs deps via pnpm with a frozen lockfile, runs lint + build, attests build provenance for `main.js` / `manifest.json` / `styles.css` via `actions/attest-build-provenance@v2`, and creates a GitHub Release with the per-version section of CHANGELOG.md as the body and the three artifacts attached.
+- **GitHub Actions release workflow** (`.github/workflows/release.yml`). On any push of a SemVer-shaped tag (e.g. `1.3.2`), the workflow checks out, installs deps via pnpm with a frozen lockfile, runs lint + build, attests build provenance for `main.js` / `manifest.json` / `styles.css` via `actions/attest-build-provenance@v2`, and creates a GitHub Release with the per-version section of CHANGELOG.md as the body and the three artifacts attached.
 - This addresses the `Recommendation` raised in the community.obsidian.md review of 1.0.0 ("the `main.js` release asset does not have a GitHub artifact attestation"). Future releases ship with a cryptographically verifiable build-provenance attestation linking the artifact to this repo's source.
 
 ### Changed
 
 - The release process no longer requires a local `pnpm build` + manual `gh release create`. Tagging is enough: `git tag X.Y.Z && git push origin X.Y.Z` triggers the workflow, which builds in a clean Ubuntu runner with Node 20 and publishes the release. Local builds still work for development and smoke testing.
+
+### Fixed
+
+- Both workflows (`ci.yml`, `release.yml`) no longer pass `version: 9` to `pnpm/action-setup@v4`. The action reads the pinned version from `package.json`'s `packageManager` field (`pnpm@9.12.0`); supplying both causes `ERR_PNPM_BAD_PM_VERSION` and aborts the run. This is what crashed the very first attempt at the release workflow.
+
+### Notes
+
+- 1.3.1 was tagged but its release workflow failed for the reason above; no GitHub Release object or catalog update ever shipped under that version. `versions.json` therefore lists 1.3.0 followed by 1.3.2, skipping 1.3.1.
 
 ## [1.3.0] - 2026-05-23
 
