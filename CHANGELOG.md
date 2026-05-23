@@ -15,7 +15,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ### Changed
 
-- **PreviewModal scroll behavior.** The modal content area is now constrained to 80vh and uses a flex column layout: the response body scrolls within the modal, while the title, "Save to" field, meta line, and action footer stay pinned. Long LLM responses no longer push the action buttons below the viewport.
+- **PreviewModal scroll behavior.** The modal element itself is now capped at `calc(100vh - 80px)` and laid out as a flex column. The response body scrolls within the modal; the title, "Save to" field, meta line, and action footer stay pinned via `flex-shrink: 0`. Long LLM responses no longer push the action buttons below the viewport.
 
 ### Notes
 
