@@ -35,6 +35,7 @@ export class PreviewModal extends Modal {
 
   onOpen(): void {
     const { contentEl } = this;
+    contentEl.addClass("excavelo-preview-content");
     contentEl.createEl("h3", { text: t("preview.title", { template: this.template.name }) });
 
     const bodyEl = contentEl.createDiv({ cls: "preview-body" });

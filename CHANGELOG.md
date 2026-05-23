@@ -13,6 +13,10 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - New `src/i18n/` module with a tiny `t(key, vars)` helper. Locale is read from `window.localStorage.getItem("language")` (Obsidian's own UI-language store), with `navigator.language` as a fallback and `"en"` as the final default. Strings with `{placeholder}` slots are interpolated.
 - Two dictionaries: `src/i18n/en.ts` and `src/i18n/ko.ts`, each with ~60 keys covering every user-visible string in the plugin.
 
+### Changed
+
+- **PreviewModal scroll behavior.** The modal content area is now constrained to 80vh and uses a flex column layout: the response body scrolls within the modal, while the title, "Save to" field, meta line, and action footer stay pinned. Long LLM responses no longer push the action buttons below the viewport.
+
 ### Notes
 
 - The locale is captured at plugin load. Switching Obsidian's language at runtime requires toggling the plugin off and on (Settings -> Community plugins) for the new strings to take effect — same caveat as most plugins that ship their own translations.
