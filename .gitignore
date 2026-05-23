@@ -33,6 +33,7 @@ desktop.ini
 .claude/settings.local.json
 .claude/skills/
 .agents/skills/
+skills-lock.json
 
 # Test vaults / scratch
 .test-vault/
