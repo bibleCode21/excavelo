@@ -158,7 +158,7 @@ Pre-submission checklist lives in `README.md` (user-facing). Developer checklist
 - [ ] `versions.json` lists the version with its minAppVersion
 - [ ] `pnpm build` succeeds with no TypeScript errors
 - [ ] Release artifacts on GitHub: `main.js`, `manifest.json`, `styles.css`
-- [ ] `obsidian-releases` PR with the catalog entry
+- [ ] Submit via [community.obsidian.md](https://community.obsidian.md) (Plugins -> New plugin, link this GitHub repo). The legacy `obsidian-releases` PR path is deprecated.
 - [ ] Manual QA pass on macOS + Windows + iOS + Android (CLI path desktop-only)
 
 ## 10. Tooling

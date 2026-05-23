@@ -14,10 +14,10 @@ excaVelo takes:
 
 - your pre-set context (who you are, what team, what project),
 - any per-note context you added,
-- the raw memo body,
+- the memo body — the part of the note excaVelo will rewrite,
 - a template you choose,
 
-and produces a clean, structured note via Claude. The raw memo is preserved.
+and produces a clean, structured note via Claude. The memo body is preserved by default.
 
 ## Quick start
 
@@ -27,13 +27,22 @@ and produces a clean, structured note via Claude. The raw memo is preserved.
    - **Anthropic API key** — paste a key from `console.anthropic.com`. Pay-per-token. Works on mobile.
    - **OpenAI-compatible endpoint** — point at OpenAI, Ollama, LM Studio, Groq, Together, OpenRouter, etc.
 3. Fill in **Default context** in settings — one paragraph about who you are and what you work on.
-4. Open any note, type a raw memo, and run **excaVelo: Transform note...** from the command palette (or click the wand icon in the ribbon).
+4. Open any note, type or paste your memo content, and run **excaVelo: Transform note...** from the command palette (or click the wand icon in the ribbon).
 5. Pick a template. Review the preview. Save as new file, append below, or copy.
 
-## Adding per-note context
+## How the plugin reads your note
 
-Drop a `[!context]` callout anywhere in the note. The plugin extracts it and adds
-it to the LLM prompt; the rest of the note becomes the raw memo.
+excaVelo splits the prompt into three parts:
+
+| Part | Source | Purpose | When does it change? |
+|---|---|---|---|
+| **User context** (always-on) | Settings -> "Default context" | Long-lived facts about you / your team / your work | Rarely |
+| **Note-specific context** | A `[!context]` callout anywhere in the active note | Facts tied to this single note (participants, date, topic, ...) | Per note |
+| **Memo body** | Everything in the active note **outside** the `[!context]` callout | The content excaVelo will rewrite | Per note |
+
+Only the **memo body** is rewritten. Anything inside `[!context]` is background — the LLM reads it but does not transform it.
+
+Example:
 
 ```markdown
 > [!context]
@@ -45,6 +54,12 @@ it to the LLM prompt; the rest of the note becomes the raw memo.
 - Park prefers B (simpler rollback)
 - need a decision by Tuesday
 ```
+
+The two lines inside the callout become the **note-specific context**. The four bullets below become the **memo body**. The "Default context" you set in Settings is always prepended on top of both.
+
+If a note has no `[!context]` callout, the entire note becomes the memo body. The Default context from Settings still applies.
+
+Tip: if you only want to transform part of a long note, select that region in the editor before running Transform — selection wins over the full note body.
 
 ## Templates
 
