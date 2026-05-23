@@ -1,5 +1,6 @@
 import { App, FuzzySuggestModal } from "obsidian";
 import type { Template } from "../types";
+import { t } from "../i18n";
 
 /**
  * Template chooser. Shown when the user invokes "Transform note..." without
@@ -19,8 +20,8 @@ export class ChooserModal extends FuzzySuggestModal<Template> {
     super(app);
     this.setPlaceholder(
       mode === "transform"
-        ? "Choose a template to transform with"
-        : "Choose a template to start a new note from"
+        ? t("chooser.placeholder.transform")
+        : t("chooser.placeholder.new-note")
     );
     this.modalEl.addClass("excavelo-chooser-modal");
   }
@@ -34,12 +35,12 @@ export class ChooserModal extends FuzzySuggestModal<Template> {
     return sorted;
   }
 
-  getItemText(t: Template): string {
-    const suffix = t.name === this.defaultName ? "  (default)" : "";
-    return `${t.name}${suffix} — ${t.description}`;
+  getItemText(item: Template): string {
+    const suffix = item.name === this.defaultName ? `  ${t("chooser.default-suffix")}` : "";
+    return `${item.name}${suffix} — ${item.description}`;
   }
 
-  onChooseItem(t: Template): void {
-    this.onChoose(t);
+  onChooseItem(item: Template): void {
+    this.onChoose(item);
   }
 }

@@ -4,6 +4,7 @@ import type { LlmProvider } from "../llm/llm";
 import type { LlmResponse, Template, TransformContext } from "../types";
 import { extractContext, getNoteText } from "./context";
 import { buildPrompt } from "./prompt";
+import { t } from "../i18n";
 
 /**
  * Orchestrates a single transform: pull context + raw memo from the editor,
@@ -19,7 +20,7 @@ export class TransformRunner {
   }> {
     const noteText = getNoteText(editor);
     if (!noteText.trim()) {
-      throw new Error("Note is empty.");
+      throw new Error(t("transform.note-empty"));
     }
 
     const { perNoteContext, rawBody } = extractContext(noteText);
@@ -39,7 +40,7 @@ export class TransformRunner {
       const response = await provider.generate(promptInput);
       return { response, transformContext };
     } catch (err) {
-      new Notice(`excaVelo: ${(err as Error).message}`);
+      new Notice(t("notice.error-generic", { detail: (err as Error).message }));
       throw err;
     } finally {
       this.plugin.setStatusBusy(false);

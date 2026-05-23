@@ -1,6 +1,6 @@
 {
   "name": "excavelo",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Transform raw memos into structured notes using Claude. Obsidian community plugin.",
   "main": "main.js",
   "packageManager": "pnpm@9.12.0",

@@ -1,6 +1,7 @@
 import { App, MarkdownRenderer, Modal, Setting, setTooltip } from "obsidian";
 import type ExcaveloPlugin from "../main";
 import type { LlmResponse, Template, TransformContext } from "../types";
+import { t } from "../i18n";
 
 export type PreviewAction =
   | "append"
@@ -34,7 +35,7 @@ export class PreviewModal extends Modal {
 
   onOpen(): void {
     const { contentEl } = this;
-    contentEl.createEl("h3", { text: `Preview — ${this.template.name}` });
+    contentEl.createEl("h3", { text: t("preview.title", { template: this.template.name }) });
 
     const bodyEl = contentEl.createDiv({ cls: "preview-body" });
     void MarkdownRenderer.render(
@@ -46,10 +47,10 @@ export class PreviewModal extends Modal {
     );
 
     new Setting(contentEl)
-      .setName("Save to")
-      .setDesc("Used when 'Save as new' is chosen.")
-      .addText((t) => {
-        t.setValue(this.suggestedSavePath).onChange((v) => {
+      .setName(t("preview.save-to-name"))
+      .setDesc(t("preview.save-to-desc"))
+      .addText((tt) => {
+        tt.setValue(this.suggestedSavePath).onChange((v) => {
           this.suggestedSavePath = v;
         });
       });
@@ -71,25 +72,25 @@ export class PreviewModal extends Modal {
     const footer = contentEl.createDiv({ cls: "preview-footer" });
     const defaultAction = this.defaultActionForTemplate();
 
-    this.button(footer, "Regenerate", () => this.complete("regenerate"), {
-      tooltip: "Re-run the transform. LLM output is non-deterministic, so the new response will vary.",
+    this.button(footer, t("preview.action.regenerate"), () => this.complete("regenerate"), {
+      tooltip: t("preview.tooltip.regenerate"),
     });
-    this.button(footer, "Append to current", () => this.complete("append"), {
+    this.button(footer, t("preview.action.append"), () => this.complete("append"), {
       cta: defaultAction === "append",
-      tooltip: "Add the response below the current note. The raw memo stays in place.",
+      tooltip: t("preview.tooltip.append"),
     });
-    this.button(footer, "Save as new", () => this.complete("save-as-new"), {
+    this.button(footer, t("preview.action.save-as-new"), () => this.complete("save-as-new"), {
       cta: defaultAction === "save-as-new",
-      tooltip: "Write the response to the file path in the 'Save to' field above. The current note is not modified.",
+      tooltip: t("preview.tooltip.save-as-new"),
     });
-    this.button(footer, "Replace", () => this.complete("replace"), {
-      tooltip: "Overwrite the current note with the response. Cmd+Z (or Ctrl+Z) undoes the replacement.",
+    this.button(footer, t("preview.action.replace"), () => this.complete("replace"), {
+      tooltip: t("preview.tooltip.replace"),
     });
-    this.button(footer, "Copy", () => this.complete("copy"), {
-      tooltip: "Copy the response text to the system clipboard. No files change.",
+    this.button(footer, t("preview.action.copy"), () => this.complete("copy"), {
+      tooltip: t("preview.tooltip.copy"),
     });
-    this.button(footer, "Discard", () => this.complete("discard"), {
-      tooltip: "Close without saving the response anywhere.",
+    this.button(footer, t("preview.action.discard"), () => this.complete("discard"), {
+      tooltip: t("preview.tooltip.discard"),
     });
   }
 

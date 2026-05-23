@@ -13,6 +13,7 @@ import { detectWikiConfig } from "./wiki/detect";
 import { resolveWikiOutput } from "./wiki/mapping";
 import type { LlmProvider } from "./llm/llm";
 import type { AuthMethod, PluginSettings, Template, WikiConfig } from "./types";
+import { t } from "./i18n";
 
 export default class ExcaveloPlugin extends Plugin {
   settings!: PluginSettings;
@@ -29,31 +30,31 @@ export default class ExcaveloPlugin extends Plugin {
 
     this.addSettingTab(new ExcaveloSettingTab(this.app, this));
 
-    this.addRibbonIcon("wand-2", "excaVelo: Transform note", () => {
+    this.addRibbonIcon("wand-2", t("ribbon.transform-note"), () => {
       void this.openChooser();
     });
 
     this.addCommand({
       id: "transform-note",
-      name: "Transform note...",
+      name: t("command.transform-note"),
       editorCallback: () => void this.openChooser(),
     });
 
     this.addCommand({
       id: "transform-with-default",
-      name: "Transform with default template",
+      name: t("command.transform-default"),
       editorCallback: (editor) => void this.transformWithDefault(editor),
     });
 
     this.addCommand({
       id: "new-note-from-template",
-      name: "New note from template",
+      name: t("command.new-note-from-template"),
       callback: () => void this.openNewNoteChooser(),
     });
 
     this.addCommand({
       id: "open-templates-folder",
-      name: "Open templates folder",
+      name: t("command.open-templates-folder"),
       callback: () => void this.openTemplatesFolder(),
     });
 
@@ -61,7 +62,7 @@ export default class ExcaveloPlugin extends Plugin {
       this.app.workspace.on("editor-menu", (menu: Menu, _editor: Editor, view) => {
         if (!(view instanceof MarkdownView)) return;
         menu.addItem((item) => {
-          item.setTitle("excaVelo: Transform note");
+          item.setTitle(t("menu.transform-note"));
           item.setIcon("wand-2");
           item.onClick(() => void this.openChooser());
         });
@@ -71,7 +72,7 @@ export default class ExcaveloPlugin extends Plugin {
     if (this.settings.showStatusBar) {
       this.statusBarEl = this.addStatusBarItem();
       this.statusBarEl.addClass("excavelo-status-bar");
-      this.statusBarEl.setText("excaVelo: ready");
+      this.statusBarEl.setText(t("status.ready"));
       this.statusBarEl.onclick = () => this.openOwnSettings();
     }
 
@@ -113,7 +114,7 @@ export default class ExcaveloPlugin extends Plugin {
   setStatusBusy(busy: boolean): void {
     if (!this.statusBarEl) return;
     this.statusBarEl.toggleClass("is-busy", busy);
-    this.statusBarEl.setText(busy ? "excaVelo: thinking..." : "excaVelo: ready");
+    this.statusBarEl.setText(busy ? t("status.thinking") : t("status.ready"));
   }
 
   async resolveProvider(template: Template): Promise<LlmProvider> {
@@ -133,7 +134,7 @@ export default class ExcaveloPlugin extends Plugin {
       }
       if (!this.mobileFallbackNotified) {
         this.mobileFallbackNotified = true;
-        new Notice("excaVelo: Claude Code CLI is desktop-only — using Anthropic API key on mobile.");
+        new Notice(t("notice.mobile-fallback"));
       }
       return new AnthropicProvider(this.settings.anthropicApi);
     }
@@ -158,23 +159,23 @@ export default class ExcaveloPlugin extends Plugin {
     }
     const vaultRoot = this.vaultRoot();
     if (!vaultRoot) {
-      new Notice(`Templates folder: ${folderPath} (open it manually on this platform).`);
+      new Notice(t("notice.templates-folder-platform", { path: folderPath }));
       return;
     }
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const electron = (window as any).require?.("electron") as { shell?: { openPath: (p: string) => Promise<string> } } | undefined;
       if (!electron?.shell) {
-        new Notice(`Templates folder: ${folderPath}`);
+        new Notice(t("notice.templates-folder", { path: folderPath }));
         return;
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const pathMod = (window as any).require?.("path") as { join: (...parts: string[]) => string };
       const absolute = pathMod.join(vaultRoot, folderPath);
       const failure = await electron.shell.openPath(absolute);
-      if (failure) new Notice(`Could not open folder: ${failure}`);
+      if (failure) new Notice(t("notice.open-folder-failed", { detail: failure }));
     } catch (err) {
-      new Notice(`Templates folder: ${folderPath}`);
+      new Notice(t("notice.templates-folder", { path: folderPath }));
       console.error("excaVelo openTemplatesFolder failed:", err);
     }
   }
@@ -186,7 +187,7 @@ export default class ExcaveloPlugin extends Plugin {
       setting.open();
       setting.openTabById("excavelo");
     } else {
-      new Notice("Open Settings -> Community plugins -> excaVelo");
+      new Notice(t("notice.open-settings-fallback"));
     }
   }
 
@@ -194,7 +195,7 @@ export default class ExcaveloPlugin extends Plugin {
     const templates = await this.templates.list();
     if (templates.length === 0) {
       new Notice(
-        `No templates found in '${this.settings.templatesFolder}'. Add a template or restore the starter set.`
+        t("notice.no-templates", { folder: this.settings.templatesFolder })
       );
       return;
     }
@@ -221,9 +222,7 @@ export default class ExcaveloPlugin extends Plugin {
       : normalizePath(`${filename}.md`);
 
     if (this.app.vault.getAbstractFileByPath(targetPath)) {
-      new Notice(
-        `File already exists: ${targetPath}. Rename it first, or wait for a different timestamp.`
-      );
+      new Notice(t("notice.file-exists-rename", { path: targetPath }));
       return;
     }
     if (folder) {
@@ -242,9 +241,9 @@ export default class ExcaveloPlugin extends Plugin {
       const created = await this.app.vault.create(targetPath, scaffold);
       const leaf = this.app.workspace.getLeaf(false);
       await leaf.openFile(created);
-      new Notice(`Created: ${targetPath}`);
+      new Notice(t("notice.created", { path: targetPath }));
     } catch (err) {
-      new Notice(`excaVelo: ${(err as Error).message}`);
+      new Notice(t("notice.error-generic", { detail: (err as Error).message }));
       console.error("excaVelo createNoteFromTemplate failed:", err);
     }
   }
@@ -252,13 +251,13 @@ export default class ExcaveloPlugin extends Plugin {
   private async openChooser(): Promise<void> {
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (!view) {
-      new Notice("Open a note first.");
+      new Notice(t("notice.open-note-first"));
       return;
     }
     const templates = await this.templates.list();
     if (templates.length === 0) {
       new Notice(
-        `No templates found in '${this.settings.templatesFolder}'. Add a template or restore the starter set.`
+        t("notice.no-templates", { folder: this.settings.templatesFolder })
       );
       return;
     }
@@ -270,7 +269,7 @@ export default class ExcaveloPlugin extends Plugin {
   private async transformWithDefault(editor: Editor): Promise<void> {
     const template = await this.templates.findByName(this.settings.defaultTemplate);
     if (!template) {
-      new Notice(`Default template '${this.settings.defaultTemplate}' not found.`);
+      new Notice(t("notice.default-template-missing", { name: this.settings.defaultTemplate }));
       return;
     }
     await this.transformAndPreview(editor, template);
@@ -316,18 +315,18 @@ export default class ExcaveloPlugin extends Plugin {
       switch (action) {
         case "append":
           this.appendToEditor(editor, text);
-          new Notice("Appended to current note.");
+          new Notice(t("notice.appended"));
           return;
         case "save-as-new":
           await this.saveAsNew(ctx.savePath, text, frontmatterPreset);
           return;
         case "replace":
           this.replaceEditor(editor, text);
-          new Notice("Replaced note content.");
+          new Notice(t("notice.replaced"));
           return;
         case "copy":
           await navigator.clipboard.writeText(text);
-          new Notice("Copied to clipboard.");
+          new Notice(t("notice.copied"));
           return;
         case "regenerate":
           await this.transformAndPreview(editor, template);
@@ -336,7 +335,7 @@ export default class ExcaveloPlugin extends Plugin {
           return;
       }
     } catch (err) {
-      new Notice(`excaVelo: ${(err as Error).message}`);
+      new Notice(t("notice.error-generic", { detail: (err as Error).message }));
       console.error("excaVelo action failed:", err);
     }
   }
@@ -362,7 +361,7 @@ export default class ExcaveloPlugin extends Plugin {
     const normalized = normalizePath(savePath);
     const existing = this.app.vault.getAbstractFileByPath(normalized);
     if (existing) {
-      throw new Error(`File already exists: ${normalized}`);
+      throw new Error(t("notice.file-exists", { path: normalized }));
     }
     const parent = normalized.includes("/") ? normalized.slice(0, normalized.lastIndexOf("/")) : "";
     if (parent && !(this.app.vault.getAbstractFileByPath(parent) instanceof TFolder)) {
@@ -372,7 +371,7 @@ export default class ExcaveloPlugin extends Plugin {
     const created = await this.app.vault.create(normalized, body);
     const leaf = this.app.workspace.getLeaf(false);
     await leaf.openFile(created);
-    new Notice(`Saved: ${normalized}`);
+    new Notice(t("notice.saved", { path: normalized }));
   }
 
   private slugify(basename: string): string {

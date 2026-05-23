@@ -1,6 +1,7 @@
 import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import type ExcaveloPlugin from "../main";
 import type { AuthMethod } from "../types";
+import { t } from "../i18n";
 
 export class ExcaveloSettingTab extends PluginSettingTab {
   plugin: ExcaveloPlugin;
@@ -15,7 +16,7 @@ export class ExcaveloSettingTab extends PluginSettingTab {
     containerEl.empty();
     containerEl.addClass("excavelo-settings");
 
-    containerEl.createEl("h2", { text: "excaVelo" });
+    containerEl.createEl("h2", { text: t("settings.title") });
 
     this.renderConnectionSection(containerEl);
     this.renderContextSection(containerEl);
@@ -24,18 +25,16 @@ export class ExcaveloSettingTab extends PluginSettingTab {
   }
 
   private renderConnectionSection(parent: HTMLElement): void {
-    parent.createEl("h3", { text: "Connection" });
+    parent.createEl("h3", { text: t("settings.connection.header") });
 
     new Setting(parent)
-      .setName("Authentication method")
-      .setDesc(
-        "Claude Code CLI uses your existing Pro/Max subscription via OAuth (no API key needed)."
-      )
+      .setName(t("settings.auth-method.name"))
+      .setDesc(t("settings.auth-method.desc"))
       .addDropdown((dd) =>
         dd
-          .addOption("claude-code-cli", "Claude Code CLI (recommended)")
-          .addOption("anthropic-api", "Anthropic API key")
-          .addOption("openai-compat", "OpenAI-compatible endpoint")
+          .addOption("claude-code-cli", t("settings.auth-method.option.cli"))
+          .addOption("anthropic-api", t("settings.auth-method.option.api"))
+          .addOption("openai-compat", t("settings.auth-method.option.openai"))
           .setValue(this.plugin.settings.authMethod)
           .onChange(async (value) => {
             this.plugin.settings.authMethod = value as AuthMethod;
@@ -55,11 +54,11 @@ export class ExcaveloSettingTab extends PluginSettingTab {
 
   private renderClaudeCodeCliSettings(parent: HTMLElement): void {
     new Setting(parent)
-      .setName("Binary path")
-      .setDesc("Leave empty to auto-detect from PATH.")
-      .addText((t) =>
-        t
-          .setPlaceholder("e.g. /usr/local/bin/claude")
+      .setName(t("settings.cli.binary.name"))
+      .setDesc(t("settings.cli.binary.desc"))
+      .addText((tt) =>
+        tt
+          .setPlaceholder(t("settings.cli.binary.placeholder"))
           .setValue(this.plugin.settings.claudeCodeCli.binaryPath)
           .onChange(async (v) => {
             this.plugin.settings.claudeCodeCli.binaryPath = v;
@@ -68,8 +67,8 @@ export class ExcaveloSettingTab extends PluginSettingTab {
       );
 
     new Setting(parent)
-      .setName("Permission mode")
-      .setDesc("bypassPermissions skips tool-use prompts; safe for pure text generation.")
+      .setName(t("settings.cli.permission.name"))
+      .setDesc(t("settings.cli.permission.desc"))
       .addDropdown((dd) =>
         dd
           .addOption("default", "default")
@@ -82,10 +81,10 @@ export class ExcaveloSettingTab extends PluginSettingTab {
       );
 
     new Setting(parent)
-      .setName("Timeout (seconds)")
-      .setDesc("Maximum time to wait for a Claude Code response.")
-      .addText((t) =>
-        t
+      .setName(t("settings.cli.timeout.name"))
+      .setDesc(t("settings.cli.timeout.desc"))
+      .addText((tt) =>
+        tt
           .setValue(String(this.plugin.settings.claudeCodeCli.timeoutSeconds))
           .onChange(async (v) => {
             const n = Number(v);
@@ -101,11 +100,11 @@ export class ExcaveloSettingTab extends PluginSettingTab {
 
   private renderAnthropicSettings(parent: HTMLElement): void {
     new Setting(parent)
-      .setName("API key")
-      .setDesc("From console.anthropic.com. Stored locally in data.json.")
-      .addText((t) => {
-        t.inputEl.type = "password";
-        t.setPlaceholder("sk-ant-...")
+      .setName(t("settings.anthropic.key.name"))
+      .setDesc(t("settings.anthropic.key.desc"))
+      .addText((tt) => {
+        tt.inputEl.type = "password";
+        tt.setPlaceholder("sk-ant-...")
           .setValue(this.plugin.settings.anthropicApi.apiKey)
           .onChange(async (v) => {
             this.plugin.settings.anthropicApi.apiKey = v;
@@ -114,9 +113,9 @@ export class ExcaveloSettingTab extends PluginSettingTab {
       });
 
     new Setting(parent)
-      .setName("Model")
-      .addText((t) =>
-        t
+      .setName(t("settings.anthropic.model.name"))
+      .addText((tt) =>
+        tt
           .setValue(this.plugin.settings.anthropicApi.model)
           .onChange(async (v) => {
             this.plugin.settings.anthropicApi.model = v;
@@ -129,12 +128,10 @@ export class ExcaveloSettingTab extends PluginSettingTab {
 
   private renderOpenAiCompatSettings(parent: HTMLElement): void {
     new Setting(parent)
-      .setName("Base URL")
-      .setDesc(
-        "e.g. https://api.openai.com/v1, http://localhost:11434/v1 (Ollama), https://api.groq.com/openai/v1"
-      )
-      .addText((t) =>
-        t
+      .setName(t("settings.openai.baseurl.name"))
+      .setDesc(t("settings.openai.baseurl.desc"))
+      .addText((tt) =>
+        tt
           .setValue(this.plugin.settings.openAiCompat.baseUrl)
           .onChange(async (v) => {
             this.plugin.settings.openAiCompat.baseUrl = v;
@@ -143,20 +140,20 @@ export class ExcaveloSettingTab extends PluginSettingTab {
       );
 
     new Setting(parent)
-      .setName("API key")
-      .setDesc("Leave empty for local-only providers like Ollama.")
-      .addText((t) => {
-        t.inputEl.type = "password";
-        t.setValue(this.plugin.settings.openAiCompat.apiKey).onChange(async (v) => {
+      .setName(t("settings.openai.key.name"))
+      .setDesc(t("settings.openai.key.desc"))
+      .addText((tt) => {
+        tt.inputEl.type = "password";
+        tt.setValue(this.plugin.settings.openAiCompat.apiKey).onChange(async (v) => {
           this.plugin.settings.openAiCompat.apiKey = v;
           await this.plugin.saveSettings();
         });
       });
 
     new Setting(parent)
-      .setName("Model name")
-      .addText((t) =>
-        t
+      .setName(t("settings.openai.model.name"))
+      .addText((tt) =>
+        tt
           .setValue(this.plugin.settings.openAiCompat.model)
           .onChange(async (v) => {
             this.plugin.settings.openAiCompat.model = v;
@@ -170,40 +167,38 @@ export class ExcaveloSettingTab extends PluginSettingTab {
   private renderTestConnection(parent: HTMLElement, method: AuthMethod): void {
     new Setting(parent).addButton((btn) =>
       btn
-        .setButtonText("Test connection")
+        .setButtonText(t("settings.test-connection.button"))
         .setCta()
         .onClick(async () => {
           btn.setDisabled(true);
-          btn.setButtonText("Testing...");
+          btn.setButtonText(t("settings.test-connection.testing"));
           try {
             const provider = this.plugin.providerFor(method);
             const result = await provider.ping();
             new Notice(
               result.ok
-                ? `excaVelo: connection OK (${result.detail ?? ""})`
-                : `excaVelo: connection failed — ${result.detail ?? "unknown"}`
+                ? t("settings.test-connection.ok", { detail: result.detail ?? "" })
+                : t("settings.test-connection.fail", { detail: result.detail ?? "unknown" })
             );
           } catch (err) {
-            new Notice(`excaVelo: connection failed — ${(err as Error).message}`);
+            new Notice(t("settings.test-connection.fail", { detail: (err as Error).message }));
           } finally {
             btn.setDisabled(false);
-            btn.setButtonText("Test connection");
+            btn.setButtonText(t("settings.test-connection.button"));
           }
         })
     );
   }
 
   private renderContextSection(parent: HTMLElement): void {
-    parent.createEl("h3", { text: "Context" });
+    parent.createEl("h3", { text: t("settings.context.header") });
 
     new Setting(parent)
-      .setName("Default context")
-      .setDesc(
-        "Always prepended to the LLM prompt. Put long-lived info here — who you are, your team, your project. Per-note context can override via a [!context] callout."
-      )
-      .addTextArea((t) => {
-        t.inputEl.rows = 6;
-        t.setValue(this.plugin.settings.defaultContext).onChange(async (v) => {
+      .setName(t("settings.default-context.name"))
+      .setDesc(t("settings.default-context.desc"))
+      .addTextArea((tt) => {
+        tt.inputEl.rows = 6;
+        tt.setValue(this.plugin.settings.defaultContext).onChange(async (v) => {
           this.plugin.settings.defaultContext = v;
           await this.plugin.saveSettings();
         });
@@ -211,13 +206,13 @@ export class ExcaveloSettingTab extends PluginSettingTab {
   }
 
   private renderTemplatesSection(parent: HTMLElement): void {
-    parent.createEl("h3", { text: "Templates" });
+    parent.createEl("h3", { text: t("settings.templates.header") });
 
     new Setting(parent)
-      .setName("Templates folder")
-      .setDesc("Markdown files in this folder are auto-discovered as templates.")
-      .addText((t) =>
-        t
+      .setName(t("settings.templates-folder.name"))
+      .setDesc(t("settings.templates-folder.desc"))
+      .addText((tt) =>
+        tt
           .setValue(this.plugin.settings.templatesFolder)
           .onChange(async (v) => {
             this.plugin.settings.templatesFolder = v;
@@ -226,10 +221,10 @@ export class ExcaveloSettingTab extends PluginSettingTab {
       );
 
     new Setting(parent)
-      .setName("Default template")
-      .setDesc("Used when transforming without selecting a template.")
-      .addText((t) =>
-        t
+      .setName(t("settings.default-template.name"))
+      .setDesc(t("settings.default-template.desc"))
+      .addText((tt) =>
+        tt
           .setValue(this.plugin.settings.defaultTemplate)
           .onChange(async (v) => {
             this.plugin.settings.defaultTemplate = v;
@@ -238,40 +233,40 @@ export class ExcaveloSettingTab extends PluginSettingTab {
       );
 
     new Setting(parent).addButton((b) =>
-      b.setButtonText("Open templates folder").onClick(() => {
+      b.setButtonText(t("settings.open-templates-folder.button")).onClick(() => {
         void this.plugin.openTemplatesFolder();
       })
     );
 
     new Setting(parent)
-      .setName("Restore starter templates")
-      .setDesc("Re-create the bundled starter templates in the folder above (existing files are not overwritten).")
+      .setName(t("settings.restore-starter.name"))
+      .setDesc(t("settings.restore-starter.desc"))
       .addButton((b) =>
-        b.setButtonText("Restore").onClick(async () => {
+        b.setButtonText(t("settings.restore-starter.button")).onClick(async () => {
           await this.plugin.templates.ensureStarter();
-          new Notice("Starter templates restored where missing.");
+          new Notice(t("settings.restore-starter.notice"));
         })
       );
   }
 
   private renderUiSection(parent: HTMLElement): void {
-    parent.createEl("h3", { text: "UI" });
+    parent.createEl("h3", { text: t("settings.ui.header") });
 
     new Setting(parent)
-      .setName("Status bar")
-      .setDesc("Show a small status item with usage info.")
-      .addToggle((t) =>
-        t.setValue(this.plugin.settings.showStatusBar).onChange(async (v) => {
+      .setName(t("settings.status-bar.name"))
+      .setDesc(t("settings.status-bar.desc"))
+      .addToggle((tt) =>
+        tt.setValue(this.plugin.settings.showStatusBar).onChange(async (v) => {
           this.plugin.settings.showStatusBar = v;
           await this.plugin.saveSettings();
         })
       );
 
     new Setting(parent)
-      .setName("Show cost in preview")
-      .setDesc("Display token usage and cost (when reported by the provider).")
-      .addToggle((t) =>
-        t.setValue(this.plugin.settings.showCostInPreview).onChange(async (v) => {
+      .setName(t("settings.show-cost.name"))
+      .setDesc(t("settings.show-cost.desc"))
+      .addToggle((tt) =>
+        tt.setValue(this.plugin.settings.showCostInPreview).onChange(async (v) => {
           this.plugin.settings.showCostInPreview = v;
           await this.plugin.saveSettings();
         })

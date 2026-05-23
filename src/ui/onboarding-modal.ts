@@ -1,6 +1,7 @@
 import { App, Modal, Notice, Setting } from "obsidian";
 import type ExcaveloPlugin from "../main";
 import { ClaudeCodeCliProvider } from "../llm/claude-code-cli";
+import { t } from "../i18n";
 
 /**
  * One-time setup wizard shown on first activation. Auto-detects Claude Code and
@@ -16,20 +17,17 @@ export class OnboardingModal extends Modal {
   onOpen(): void {
     const { contentEl } = this;
     contentEl.empty();
-    contentEl.createEl("h2", { text: "excaVelo setup" });
+    contentEl.createEl("h2", { text: t("onboarding.title") });
     contentEl.createEl("p", {
-      text: "Choose how the plugin should talk to Claude. You can change this later in settings.",
+      text: t("onboarding.intro"),
     });
 
     new Setting(contentEl)
-      .setName("Use Claude Code (recommended)")
-      .setDesc(
-        "If you already have Claude Code installed and signed in, the plugin will use it. " +
-          "Works with Claude Pro/Max subscriptions and team accounts. Desktop only."
-      )
+      .setName(t("onboarding.cli.name"))
+      .setDesc(t("onboarding.cli.desc"))
       .addButton((b) =>
         b
-          .setButtonText("Detect Claude Code")
+          .setButtonText(t("onboarding.cli.button"))
           .setCta()
           .onClick(async () => {
             await this.runDetect();
@@ -39,22 +37,20 @@ export class OnboardingModal extends Modal {
     this.statusEl = contentEl.createDiv({ cls: "excavelo-onboarding-status" });
 
     new Setting(contentEl)
-      .setName("Use Anthropic API key")
-      .setDesc(
-        "Get a key at console.anthropic.com. Pay-per-token billing, separate from any Claude.ai subscription."
-      )
+      .setName(t("onboarding.api.name"))
+      .setDesc(t("onboarding.api.desc"))
       .addButton((b) =>
-        b.setButtonText("Use API key").onClick(async () => {
+        b.setButtonText(t("onboarding.api.button")).onClick(async () => {
           this.plugin.settings.authMethod = "anthropic-api";
           this.plugin.settings.hasCompletedOnboarding = true;
           await this.plugin.saveSettings();
-          new Notice("Open settings to paste your Anthropic API key.");
+          new Notice(t("onboarding.api.notice"));
           this.close();
         })
       );
 
     new Setting(contentEl).addButton((b) =>
-      b.setButtonText("Skip for now").onClick(async () => {
+      b.setButtonText(t("onboarding.skip")).onClick(async () => {
         this.plugin.settings.hasCompletedOnboarding = true;
         await this.plugin.saveSettings();
         this.close();
@@ -67,20 +63,18 @@ export class OnboardingModal extends Modal {
   }
 
   private async runDetect(): Promise<void> {
-    this.setStatus("Detecting...");
+    this.setStatus(t("onboarding.cli.detecting"));
     const hint = this.plugin.settings.claudeCodeCli.binaryPath;
     const detected = await ClaudeCodeCliProvider.detect(hint);
     if (!detected.found) {
-      this.setStatus(
-        "Claude Code not found. Install it from claude.ai/code, or set the binary path in settings."
-      );
+      this.setStatus(t("onboarding.cli.not-found"));
       return;
     }
     this.plugin.settings.authMethod = "claude-code-cli";
     if (detected.path) this.plugin.settings.claudeCodeCli.binaryPath = detected.path;
     this.plugin.settings.hasCompletedOnboarding = true;
     await this.plugin.saveSettings();
-    new Notice(`Claude Code detected (version ${detected.version ?? "unknown"}).`);
+    new Notice(t("onboarding.cli.detected", { version: detected.version ?? "unknown" }));
     this.close();
   }
 

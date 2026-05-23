@@ -5,6 +5,19 @@ All notable changes to excaVelo are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-05-23
+
+### Added
+
+- **Korean UI translation.** Commands, ribbon tooltip, status bar, every modal (Onboarding, Chooser, Preview), the entire settings tab, and all `Notice` messages now follow the Obsidian language setting. When Obsidian is in Korean, excaVelo's UI is in Korean; otherwise it falls back to English.
+- New `src/i18n/` module with a tiny `t(key, vars)` helper. Locale is read from `window.localStorage.getItem("language")` (Obsidian's own UI-language store), with `navigator.language` as a fallback and `"en"` as the final default. Strings with `{placeholder}` slots are interpolated.
+- Two dictionaries: `src/i18n/en.ts` and `src/i18n/ko.ts`, each with ~60 keys covering every user-visible string in the plugin.
+
+### Notes
+
+- The locale is captured at plugin load. Switching Obsidian's language at runtime requires toggling the plugin off and on (Settings -> Community plugins) for the new strings to take effect — same caveat as most plugins that ship their own translations.
+- Starter-template bodies (`new_note_scaffold`, instruction body) and the on-disk `starter-templates/*.md` files remain in English. Users can localize their own templates by editing the markdown directly in their vault.
+
 ## [1.1.0] - 2026-05-23
 
 ### Added
