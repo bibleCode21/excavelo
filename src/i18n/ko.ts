@@ -6,12 +6,12 @@ const ko: Record<string, string> = {
   "command.open-templates-folder": "템플릿 폴더 열기",
 
   // Ribbon + context menu
-  "ribbon.transform-note": "excaVelo: 노트 변환",
-  "menu.transform-note": "excaVelo: 노트 변환",
+  "ribbon.transform-note": "ExcaVelo: 노트 변환",
+  "menu.transform-note": "ExcaVelo: 노트 변환",
 
   // Status bar
-  "status.ready": "excaVelo: 대기 중",
-  "status.thinking": "excaVelo: 생성 중...",
+  "status.ready": "ExcaVelo: 대기 중",
+  "status.thinking": "ExcaVelo: 생성 중...",
 
   // ChooserModal
   "chooser.placeholder.transform": "변환에 사용할 템플릿 선택",
@@ -36,7 +36,7 @@ const ko: Record<string, string> = {
   "preview.tooltip.discard": "응답을 저장하지 않고 닫습니다.",
 
   // OnboardingModal
-  "onboarding.title": "excaVelo 설정",
+  "onboarding.title": "ExcaVelo 설정",
   "onboarding.intro": "플러그인이 Claude 와 어떻게 통신할지 선택하세요. 나중에 설정에서 변경할 수 있습니다.",
   "onboarding.cli.name": "Claude Code 사용 (권장)",
   "onboarding.cli.desc": "이미 Claude Code 가 설치되어 있고 로그인된 상태라면, 플러그인이 자동으로 이를 사용합니다. Claude Pro/Max 구독 및 팀 계정 모두 지원. 데스크톱 전용.",
@@ -51,7 +51,7 @@ const ko: Record<string, string> = {
   "onboarding.skip": "지금은 건너뛰기",
 
   // Settings - top
-  "settings.title": "excaVelo",
+  "settings.title": "ExcaVelo",
 
   // Settings - Connection
   "settings.connection.header": "연결",
@@ -81,8 +81,8 @@ const ko: Record<string, string> = {
 
   "settings.test-connection.button": "연결 테스트",
   "settings.test-connection.testing": "테스트 중...",
-  "settings.test-connection.ok": "excaVelo: 연결 OK ({detail})",
-  "settings.test-connection.fail": "excaVelo: 연결 실패 — {detail}",
+  "settings.test-connection.ok": "ExcaVelo: 연결 OK ({detail})",
+  "settings.test-connection.fail": "ExcaVelo: 연결 실패 — {detail}",
 
   // Settings - Context
   "settings.context.header": "컨텍스트",
@@ -123,12 +123,12 @@ const ko: Record<string, string> = {
   "notice.created": "생성됨: {path}",
   "notice.file-exists": "파일이 이미 존재합니다: {path}",
   "notice.file-exists-rename": "파일이 이미 존재합니다: {path}. 이름을 바꾸거나 다른 시각에 다시 시도하세요.",
-  "notice.open-settings-fallback": "Settings -> Community plugins -> excaVelo 를 직접 열어주세요",
+  "notice.open-settings-fallback": "Settings -> Community plugins -> ExcaVelo 를 직접 열어주세요",
   "notice.templates-folder": "템플릿 폴더: {path}",
   "notice.templates-folder-platform": "템플릿 폴더: {path} (이 플랫폼에서는 직접 열어주세요).",
   "notice.open-folder-failed": "폴더를 열지 못했습니다: {detail}",
-  "notice.mobile-fallback": "excaVelo: Claude Code CLI 는 데스크톱 전용 — 모바일에서는 Anthropic API 키로 대체합니다.",
-  "notice.error-generic": "excaVelo: {detail}",
+  "notice.mobile-fallback": "ExcaVelo: Claude Code CLI 는 데스크톱 전용 — 모바일에서는 Anthropic API 키로 대체합니다.",
+  "notice.error-generic": "ExcaVelo: {detail}",
   "transform.note-empty": "노트가 비어 있습니다.",
 };
 

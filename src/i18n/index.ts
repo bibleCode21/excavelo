@@ -1,5 +1,5 @@
 /**
- * Lightweight i18n for excaVelo.
+ * Lightweight i18n for ExcaVelo.
  *
  * Locale detection (in order):
  *   1. `window.localStorage.getItem("language")` — Obsidian's own language

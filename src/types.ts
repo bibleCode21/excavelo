@@ -1,5 +1,5 @@
 /**
- * Shared types for excaVelo.
+ * Shared types for ExcaVelo.
  *
  * Decision references in CLAUDE.md (e.g. "Q5: LLM Provider") map to these types.
  */

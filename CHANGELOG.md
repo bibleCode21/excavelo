@@ -1,9 +1,21 @@
 # Changelog
 
-All notable changes to excaVelo are documented here.
+All notable changes to ExcaVelo are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [1.3.3] - 2026-05-23
+
+### Changed
+
+- **Display name capitalized: `excaVelo` -> `ExcaVelo`** throughout user-visible surfaces — catalog name (`manifest.json`'s `name` field), READMEs, CHANGELOG header, command palette prefix, ribbon tooltip, status bar text, Notice messages, modal titles, and code comments / docs.
+- The plugin id (`excavelo`), GitHub repo (`bibleCode21/excavelo`), and catalog URL (`https://community.obsidian.md/plugins/excavelo`) are unchanged — they stay lowercase to avoid breaking the install / settings keys of existing users.
+- The default vault folder path (`excaVelo/templates`) is also unchanged for the same reason, so users upgrading from 1.0.0-1.3.2 see no change in where their templates live.
+
+### Notes
+
+- This is purely a brand-display change. Functional behavior is identical to 1.3.2.
 
 ## [1.3.2] - 2026-05-23
 
@@ -40,7 +52,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ### Added
 
-- **Korean UI translation.** Commands, ribbon tooltip, status bar, every modal (Onboarding, Chooser, Preview), the entire settings tab, and all `Notice` messages now follow the Obsidian language setting. When Obsidian is in Korean, excaVelo's UI is in Korean; otherwise it falls back to English.
+- **Korean UI translation.** Commands, ribbon tooltip, status bar, every modal (Onboarding, Chooser, Preview), the entire settings tab, and all `Notice` messages now follow the Obsidian language setting. When Obsidian is in Korean, ExcaVelo's UI is in Korean; otherwise it falls back to English.
 - New `src/i18n/` module with a tiny `t(key, vars)` helper. Locale is read from `window.localStorage.getItem("language")` (Obsidian's own UI-language store), with `navigator.language` as a fallback and `"en"` as the final default. Strings with `{placeholder}` slots are interpolated.
 - Two dictionaries: `src/i18n/en.ts` and `src/i18n/ko.ts`, each with ~60 keys covering every user-visible string in the plugin.
 
@@ -57,7 +69,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ### Added
 
-- **New command: `excaVelo: New note from template`**. Pick a template and the plugin creates a fresh note with a pre-filled `[!context]` callout scaffold, so you only fill in the blanks before writing the memo body. Removes the need to write the callout syntax by hand.
+- **New command: `ExcaVelo: New note from template`**. Pick a template and the plugin creates a fresh note with a pre-filled `[!context]` callout scaffold, so you only fill in the blanks before writing the memo body. Removes the need to write the callout syntax by hand.
 - Each starter template now ships with three optional frontmatter fields for the new command:
   - `new_note_folder` — where to create the note (default: vault root).
   - `new_note_filename` — filename pattern with `{date}`, `{slug}`, `{template}` placeholders. `{slug}` falls back to `untitled` because the new note has no source slug yet — rename it after creation.
@@ -106,5 +118,5 @@ First public release. Published in the Obsidian Community Plugins catalog at htt
 
 ### Notes
 
-- Anthropic does not document using Claude Code as a backend for another tool. excaVelo spawning the user's own logged-in `claude` CLI is mechanically identical to running it manually, but users should be aware of this grey area. The Anthropic API key path is available as an alternative.
+- Anthropic does not document using Claude Code as a backend for another tool. ExcaVelo spawning the user's own logged-in `claude` CLI is mechanically identical to running it manually, but users should be aware of this grey area. The Anthropic API key path is available as an alternative.
 - The plugin is desktop + mobile (`isDesktopOnly: false` in `manifest.json`), but the Claude Code CLI path is desktop-only.

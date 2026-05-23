@@ -1,6 +1,6 @@
-# excaVelo — Developer Spec
+# ExcaVelo — Developer Spec
 
-You are a contributor (or AI agent) working on **excaVelo**, an Obsidian community
+You are a contributor (or AI agent) working on **ExcaVelo**, an Obsidian community
 plugin that transforms raw memo notes into structured outputs using Claude.
 
 This file is the **index** to the spec. Keep it short. Details live in `docs/`.
@@ -50,7 +50,7 @@ desktop-only by construction.
 ## 4. Repository layout
 
 ```
-excaVelo/
+ExcaVelo/
 ├── manifest.json              plugin metadata for Obsidian
 ├── package.json
 ├── tsconfig.json
@@ -128,11 +128,11 @@ Schema for `excavelo.json` → `docs/architecture.md` section "Wiki config".
 
 | Surface | What |
 |---|---|
-| Command palette | `excaVelo: Transform note...`, `excaVelo: Transform with default template`, `excaVelo: New note from template`, `excaVelo: Open templates folder` |
+| Command palette | `ExcaVelo: Transform note...`, `ExcaVelo: Transform with default template`, `ExcaVelo: New note from template`, `ExcaVelo: Open templates folder` |
 | Ribbon icon | One icon → opens chooser |
 | Hotkey | None bound by default; user assigns via Obsidian's standard hotkey settings |
-| Editor context menu | "excaVelo: Transform note" |
-| Status bar | "excaVelo: ready" / "excaVelo: thinking..." — click opens this plugin's settings tab |
+| Editor context menu | "ExcaVelo: Transform note" |
+| Status bar | "ExcaVelo: ready" / "ExcaVelo: thinking..." — click opens this plugin's settings tab |
 | Selection support | If a selection is active, only the selection becomes the raw memo |
 
 ---

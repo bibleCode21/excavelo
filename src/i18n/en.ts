@@ -6,12 +6,12 @@ const en: Record<string, string> = {
   "command.open-templates-folder": "Open templates folder",
 
   // Ribbon + context menu
-  "ribbon.transform-note": "excaVelo: Transform note",
-  "menu.transform-note": "excaVelo: Transform note",
+  "ribbon.transform-note": "ExcaVelo: Transform note",
+  "menu.transform-note": "ExcaVelo: Transform note",
 
   // Status bar
-  "status.ready": "excaVelo: ready",
-  "status.thinking": "excaVelo: thinking...",
+  "status.ready": "ExcaVelo: ready",
+  "status.thinking": "ExcaVelo: thinking...",
 
   // ChooserModal
   "chooser.placeholder.transform": "Choose a template to transform with",
@@ -36,7 +36,7 @@ const en: Record<string, string> = {
   "preview.tooltip.discard": "Close without saving the response anywhere.",
 
   // OnboardingModal
-  "onboarding.title": "excaVelo setup",
+  "onboarding.title": "ExcaVelo setup",
   "onboarding.intro": "Choose how the plugin should talk to Claude. You can change this later in settings.",
   "onboarding.cli.name": "Use Claude Code (recommended)",
   "onboarding.cli.desc": "If you already have Claude Code installed and signed in, the plugin will use it. Works with Claude Pro/Max subscriptions and team accounts. Desktop only.",
@@ -51,7 +51,7 @@ const en: Record<string, string> = {
   "onboarding.skip": "Skip for now",
 
   // Settings - top
-  "settings.title": "excaVelo",
+  "settings.title": "ExcaVelo",
 
   // Settings - Connection
   "settings.connection.header": "Connection",
@@ -81,8 +81,8 @@ const en: Record<string, string> = {
 
   "settings.test-connection.button": "Test connection",
   "settings.test-connection.testing": "Testing...",
-  "settings.test-connection.ok": "excaVelo: connection OK ({detail})",
-  "settings.test-connection.fail": "excaVelo: connection failed — {detail}",
+  "settings.test-connection.ok": "ExcaVelo: connection OK ({detail})",
+  "settings.test-connection.fail": "ExcaVelo: connection failed — {detail}",
 
   // Settings - Context
   "settings.context.header": "Context",
@@ -123,12 +123,12 @@ const en: Record<string, string> = {
   "notice.created": "Created: {path}",
   "notice.file-exists": "File already exists: {path}",
   "notice.file-exists-rename": "File already exists: {path}. Rename it first, or wait for a different timestamp.",
-  "notice.open-settings-fallback": "Open Settings -> Community plugins -> excaVelo",
+  "notice.open-settings-fallback": "Open Settings -> Community plugins -> ExcaVelo",
   "notice.templates-folder": "Templates folder: {path}",
   "notice.templates-folder-platform": "Templates folder: {path} (open it manually on this platform).",
   "notice.open-folder-failed": "Could not open folder: {detail}",
-  "notice.mobile-fallback": "excaVelo: Claude Code CLI is desktop-only — using Anthropic API key on mobile.",
-  "notice.error-generic": "excaVelo: {detail}",
+  "notice.mobile-fallback": "ExcaVelo: Claude Code CLI is desktop-only — using Anthropic API key on mobile.",
+  "notice.error-generic": "ExcaVelo: {detail}",
   "transform.note-empty": "Note is empty.",
 };
 

@@ -1,4 +1,4 @@
-# excaVelo
+# ExcaVelo
 
 > 한국어 README: [README.ko.md](README.ko.md)
 
@@ -10,36 +10,36 @@ You scribble fragmented notes during a meeting or a quick thought. You want them
 turned into proper meeting minutes, a 1:1 summary, a decision record, or your
 own template — without leaving Obsidian and without copy-pasting into a chat.
 
-excaVelo takes:
+ExcaVelo takes:
 
 - your pre-set context (who you are, what team, what project),
 - any per-note context you added,
-- the memo body — the part of the note excaVelo will rewrite,
+- the memo body — the part of the note ExcaVelo will rewrite,
 - a template you choose,
 
 and produces a clean, structured note via Claude. The memo body is preserved by default.
 
 ## Quick start
 
-1. Install excaVelo from Obsidian Community Plugins (or load it as an unpacked plugin during development).
+1. Install ExcaVelo from Obsidian Community Plugins (or load it as an unpacked plugin during development).
 2. Choose one of:
    - **Claude Code CLI (recommended)** — if you already use Claude Code on the desktop with a Pro/Max subscription, the plugin auto-detects and uses it. No API key needed.
    - **Anthropic API key** — paste a key from `console.anthropic.com`. Pay-per-token. Works on mobile.
    - **OpenAI-compatible endpoint** — point at OpenAI, Ollama, LM Studio, Groq, Together, OpenRouter, etc.
 3. Fill in **Default context** in settings — one paragraph about who you are and what you work on.
-4. Either open any note and type / paste your memo content, **or** run **excaVelo: New note from template** to create a fresh note with a pre-filled `[!context]` callout scaffold.
-5. Run **excaVelo: Transform note...** from the command palette (or click the wand icon in the ribbon).
+4. Either open any note and type / paste your memo content, **or** run **ExcaVelo: New note from template** to create a fresh note with a pre-filled `[!context]` callout scaffold.
+5. Run **ExcaVelo: Transform note...** from the command palette (or click the wand icon in the ribbon).
 6. Pick a template. Review the preview. Save as new file, append below, or copy.
 
 ## How the plugin reads your note
 
-excaVelo splits the prompt into three parts:
+ExcaVelo splits the prompt into three parts:
 
 | Part | Source | Purpose | When does it change? |
 |---|---|---|---|
 | **User context** (always-on) | Settings -> "Default context" | Long-lived facts about you / your team / your work | Rarely |
 | **Note-specific context** | A `[!context]` callout anywhere in the active note | Facts tied to this single note (participants, date, topic, ...) | Per note |
-| **Memo body** | Everything in the active note **outside** the `[!context]` callout | The content excaVelo will rewrite | Per note |
+| **Memo body** | Everything in the active note **outside** the `[!context]` callout | The content ExcaVelo will rewrite | Per note |
 
 Only the **memo body** is rewritten. Anything inside `[!context]` is background — the LLM reads it but does not transform it.
 
@@ -62,7 +62,7 @@ If a note has no `[!context]` callout, the entire note becomes the memo body. Th
 
 Tip: if you only want to transform part of a long note, select that region in the editor before running Transform — selection wins over the full note body.
 
-If writing the `[!context]` callout by hand each time is tedious, use **excaVelo: New note from template** (command palette). It creates a fresh note with the callout scaffold and a placeholder body, so you only fill in the blanks and start writing.
+If writing the `[!context]` callout by hand each time is tedious, use **ExcaVelo: New note from template** (command palette). It creates a fresh note with the callout scaffold and a placeholder body, so you only fill in the blanks and start writing.
 
 ## Templates
 
@@ -86,11 +86,11 @@ Claude Code (`claude login`), so the plugin never sees a key. Works with persona
 Claude Pro accounts and with team-shared Claude Max accounts.
 
 **Requires**: Claude Code installed and logged in. Desktop only — on mobile,
-excaVelo transparently falls back to the Anthropic API key path (a one-time
+ExcaVelo transparently falls back to the Anthropic API key path (a one-time
 notice tells you).
 
 **A note on Anthropic terms**: spawning your own logged-in `claude` CLI is
-mechanically the same as running it yourself in a terminal. excaVelo does not
+mechanically the same as running it yourself in a terminal. ExcaVelo does not
 redistribute any Anthropic licence and stores no Anthropic credentials. Using
 Claude Code as a backend for another tool is not a documented use case in
 Anthropic's product docs — use the CLI path knowing that, or pick the API key

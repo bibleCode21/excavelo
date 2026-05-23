@@ -176,7 +176,7 @@ export default class ExcaveloPlugin extends Plugin {
       if (failure) new Notice(t("notice.open-folder-failed", { detail: failure }));
     } catch (err) {
       new Notice(t("notice.templates-folder", { path: folderPath }));
-      console.error("excaVelo openTemplatesFolder failed:", err);
+      console.error("ExcaVelo openTemplatesFolder failed:", err);
     }
   }
 
@@ -244,7 +244,7 @@ export default class ExcaveloPlugin extends Plugin {
       new Notice(t("notice.created", { path: targetPath }));
     } catch (err) {
       new Notice(t("notice.error-generic", { detail: (err as Error).message }));
-      console.error("excaVelo createNoteFromTemplate failed:", err);
+      console.error("ExcaVelo createNoteFromTemplate failed:", err);
     }
   }
 
@@ -299,7 +299,7 @@ export default class ExcaveloPlugin extends Plugin {
       ).open();
     } catch (err) {
       // Notice already surfaced by runner; nothing else to do.
-      console.error("excaVelo transform failed:", err);
+      console.error("ExcaVelo transform failed:", err);
     }
   }
 
@@ -336,7 +336,7 @@ export default class ExcaveloPlugin extends Plugin {
       }
     } catch (err) {
       new Notice(t("notice.error-generic", { detail: (err as Error).message }));
-      console.error("excaVelo action failed:", err);
+      console.error("ExcaVelo action failed:", err);
     }
   }
 

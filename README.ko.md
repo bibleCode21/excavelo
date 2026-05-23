@@ -1,4 +1,4 @@
-# excaVelo
+# ExcaVelo
 
 > English README: [README.md](README.md)
 
@@ -8,36 +8,36 @@ Claude 를 활용해 거친 메모를 구조화된 노트로 변환합니다. �
 
 회의 중 또는 머릿속에 떠오른 단편적인 메모를 휘갈겨 두고, 그걸 회의록 / 1:1 요약 / 결정 기록 / 직접 만든 템플릿으로 다듬고 싶을 때 — Obsidian 밖으로 나가서 별도 채팅 창에 복붙하지 않고도 처리하기 위해 만들어진 플러그인입니다.
 
-excaVelo 는 아래 네 가지를 받습니다:
+ExcaVelo 는 아래 네 가지를 받습니다:
 
 - 사용자가 미리 설정한 컨텍스트 (본인 정보, 팀, 프로젝트 등),
 - 노트별 컨텍스트 (선택),
-- **메모 본문** — excaVelo 가 다듬을 영역,
+- **메모 본문** — ExcaVelo 가 다듬을 영역,
 - 사용자가 고른 템플릿,
 
 그리고 Claude 를 호출해 정돈된 구조화 노트를 만들어 줍니다. **메모 본문은 기본적으로 보존됩니다** (Replace 를 명시적으로 클릭한 경우만 덮어쓰여집니다).
 
 ## 빠른 시작
 
-1. Obsidian 의 커뮤니티 플러그인에서 excaVelo 를 설치합니다 (개발 단계에서는 빌드 산출물을 직접 vault 에 복사하셔도 됩니다).
+1. Obsidian 의 커뮤니티 플러그인에서 ExcaVelo 를 설치합니다 (개발 단계에서는 빌드 산출물을 직접 vault 에 복사하셔도 됩니다).
 2. 인증 방식을 하나 고릅니다:
    - **Claude Code CLI (권장)** — 데스크톱에 Claude Code 를 설치하고 Pro/Max 로 로그인되어 있다면, 플러그인이 자동 감지해서 그대로 씁니다. API 키 필요 없음.
    - **Anthropic API 키** — `console.anthropic.com` 에서 발급받은 키를 설정에 붙여넣습니다. 토큰당 과금. 모바일에서도 동작합니다.
    - **OpenAI 호환 엔드포인트** — OpenAI 본가, Ollama, LM Studio, Groq, Together, OpenRouter 등 OpenAI Chat Completions 모양을 따르는 어디든 연결 가능.
 3. 설정의 **Default context** 에 본인이 누구이고 무엇을 다루는지 한 문단 정도 적어 둡니다.
-4. 기존 노트를 열어서 메모를 적거나, 또는 명령 팔레트에서 **excaVelo: New note from template** 을 실행해 `[!context]` 콜아웃 scaffold 가 미리 박혀 있는 새 노트를 생성합니다.
-5. 명령 팔레트에서 **excaVelo: Transform note...** 를 실행합니다 (또는 좌측 리본의 마법봉 아이콘 클릭).
+4. 기존 노트를 열어서 메모를 적거나, 또는 명령 팔레트에서 **ExcaVelo: New note from template** 을 실행해 `[!context]` 콜아웃 scaffold 가 미리 박혀 있는 새 노트를 생성합니다.
+5. 명령 팔레트에서 **ExcaVelo: Transform note...** 를 실행합니다 (또는 좌측 리본의 마법봉 아이콘 클릭).
 6. 템플릿을 고릅니다. 미리보기를 확인한 뒤 새 파일로 저장 / 아래에 추가 / 클립보드로 복사 중 선택합니다.
 
 ## 플러그인이 노트를 읽는 방식
 
-excaVelo 는 프롬프트를 세 영역으로 나눠 LLM 에 보냅니다:
+ExcaVelo 는 프롬프트를 세 영역으로 나눠 LLM 에 보냅니다:
 
 | 영역 | 출처 | 역할 | 변경 빈도 |
 |---|---|---|---|
 | **사용자 컨텍스트** (항상 적용) | Settings -> "Default context" | 본인 / 팀 / 업무에 대한 장기적 사실 | 거의 안 변함 |
 | **노트별 컨텍스트** | 노트 본문 안의 `[!context]` 콜아웃 | 이 노트 한정 사실 (참가자, 일시, 주제 등) | 노트마다 다름 |
-| **메모 본문** | 노트 본문 중 `[!context]` 콜아웃 **밖** 전체 | excaVelo 가 다듬을 본문 | 노트마다 다름 |
+| **메모 본문** | 노트 본문 중 `[!context]` 콜아웃 **밖** 전체 | ExcaVelo 가 다듬을 본문 | 노트마다 다름 |
 
 **메모 본문만** 변환됩니다. `[!context]` 안 내용은 LLM 이 배경 정보로 읽되 변환 결과에 직접 옮겨 적지는 않습니다.
 
@@ -60,7 +60,7 @@ excaVelo 는 프롬프트를 세 영역으로 나눠 LLM 에 보냅니다:
 
 팁: 긴 노트의 일부만 변환하고 싶으면 에디터에서 해당 영역을 선택한 뒤 Transform 을 실행하세요 — 선택 영역이 노트 전체보다 우선합니다.
 
-매번 `[!context]` 콜아웃을 손으로 적기 번거롭다면 명령 팔레트의 **excaVelo: New note from template** 을 사용하세요. 콜아웃 scaffold 와 빈 자리 placeholder 가 박힌 새 노트가 자동 생성되어, 빈칸만 채우고 본문을 적으면 됩니다.
+매번 `[!context]` 콜아웃을 손으로 적기 번거롭다면 명령 팔레트의 **ExcaVelo: New note from template** 을 사용하세요. 콜아웃 scaffold 와 빈 자리 placeholder 가 박힌 새 노트가 자동 생성되어, 빈칸만 채우고 본문을 적으면 됩니다.
 
 ## 템플릿
 
@@ -78,9 +78,9 @@ excaVelo 는 프롬프트를 세 영역으로 나눠 LLM 에 보냅니다:
 
 플러그인이 시스템에 설치된 `claude` CLI 를 서브프로세스로 띄웁니다. 인증은 Claude Code 자체가 관리 (`claude login`) 하므로 플러그인은 키를 보지 않습니다. 개인 Claude Pro 계정뿐 아니라 팀 단위로 공유하는 Claude Max 계정도 동일하게 동작합니다.
 
-**필요 조건**: Claude Code 가 설치되고 로그인된 상태. 데스크톱 전용 — 모바일에서는 excaVelo 가 자동으로 Anthropic API 키 경로로 빠집니다 (사용자에게 한 번 알림이 표시됩니다).
+**필요 조건**: Claude Code 가 설치되고 로그인된 상태. 데스크톱 전용 — 모바일에서는 ExcaVelo 가 자동으로 Anthropic API 키 경로로 빠집니다 (사용자에게 한 번 알림이 표시됩니다).
 
-**Anthropic 약관 관련**: 이미 로그인된 본인 소유의 `claude` CLI 를 띄우는 동작은 사용자가 직접 터미널에서 실행하는 것과 기계적으로 동일합니다. excaVelo 는 Anthropic 의 어떤 라이선스도 재배포하지 않으며 Anthropic 인증 정보를 저장하지도 않습니다. 다만 Claude Code 를 다른 도구의 백엔드로 쓰는 방식은 Anthropic 의 공식 문서가 다루는 사용 사례가 아닙니다 — 이 점을 인지한 상태에서 CLI 경로를 사용하시거나, API 키 경로를 선택하시면 됩니다.
+**Anthropic 약관 관련**: 이미 로그인된 본인 소유의 `claude` CLI 를 띄우는 동작은 사용자가 직접 터미널에서 실행하는 것과 기계적으로 동일합니다. ExcaVelo 는 Anthropic 의 어떤 라이선스도 재배포하지 않으며 Anthropic 인증 정보를 저장하지도 않습니다. 다만 Claude Code 를 다른 도구의 백엔드로 쓰는 방식은 Anthropic 의 공식 문서가 다루는 사용 사례가 아닙니다 — 이 점을 인지한 상태에서 CLI 경로를 사용하시거나, API 키 경로를 선택하시면 됩니다.
 
 ### Anthropic API 키
 
