@@ -46,6 +46,12 @@ export default class ExcaveloPlugin extends Plugin {
     });
 
     this.addCommand({
+      id: "new-note-from-template",
+      name: "New note from template",
+      callback: () => void this.openNewNoteChooser(),
+    });
+
+    this.addCommand({
       id: "open-templates-folder",
       name: "Open templates folder",
       callback: () => void this.openTemplatesFolder(),
@@ -181,6 +187,65 @@ export default class ExcaveloPlugin extends Plugin {
       setting.openTabById("excavelo");
     } else {
       new Notice("Open Settings -> Community plugins -> excaVelo");
+    }
+  }
+
+  private async openNewNoteChooser(): Promise<void> {
+    const templates = await this.templates.list();
+    if (templates.length === 0) {
+      new Notice(
+        `No templates found in '${this.settings.templatesFolder}'. Add a template or restore the starter set.`
+      );
+      return;
+    }
+    new ChooserModal(
+      this.app,
+      templates,
+      this.settings.defaultTemplate,
+      (t) => void this.createNoteFromTemplate(t),
+      "new-note"
+    ).open();
+  }
+
+  private async createNoteFromTemplate(template: Template): Promise<void> {
+    const isoDate = new Date().toISOString().slice(0, 10);
+    const slug = "untitled";
+    const filenamePattern = template.newNoteFilename ?? `{date}-${template.name}-{slug}`;
+    const filename = filenamePattern
+      .replace(/\{date\}/g, isoDate)
+      .replace(/\{slug\}/g, slug)
+      .replace(/\{template\}/g, template.name);
+    const folder = template.newNoteFolder ?? "";
+    const targetPath = folder
+      ? normalizePath(`${folder}/${filename}.md`)
+      : normalizePath(`${filename}.md`);
+
+    if (this.app.vault.getAbstractFileByPath(targetPath)) {
+      new Notice(
+        `File already exists: ${targetPath}. Rename it first, or wait for a different timestamp.`
+      );
+      return;
+    }
+    if (folder) {
+      const folderNorm = normalizePath(folder);
+      if (!(this.app.vault.getAbstractFileByPath(folderNorm) instanceof TFolder)) {
+        await this.app.vault.createFolder(folderNorm).catch(() => undefined);
+      }
+    }
+
+    const scaffoldRaw =
+      template.newNoteScaffold ??
+      `> [!context]\n> Date: {date}\n\n<!-- Write your memo body below this line -->\n`;
+    const scaffold = scaffoldRaw.replace(/\{date\}/g, isoDate);
+
+    try {
+      const created = await this.app.vault.create(targetPath, scaffold);
+      const leaf = this.app.workspace.getLeaf(false);
+      await leaf.openFile(created);
+      new Notice(`Created: ${targetPath}`);
+    } catch (err) {
+      new Notice(`excaVelo: ${(err as Error).message}`);
+      console.error("excaVelo createNoteFromTemplate failed:", err);
     }
   }
 

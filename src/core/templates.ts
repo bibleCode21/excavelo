@@ -85,6 +85,15 @@ export class TemplateRegistry {
       outputFilename: frontmatter.output_filename
         ? String(frontmatter.output_filename)
         : undefined,
+      newNoteFolder: frontmatter.new_note_folder
+        ? String(frontmatter.new_note_folder)
+        : undefined,
+      newNoteFilename: frontmatter.new_note_filename
+        ? String(frontmatter.new_note_filename)
+        : undefined,
+      newNoteScaffold: frontmatter.new_note_scaffold
+        ? String(frontmatter.new_note_scaffold)
+        : undefined,
       instruction: stripFirstHeading(body).trim(),
       filePath: file.path,
     };
@@ -97,8 +106,10 @@ interface FrontmatterParsed {
 }
 
 /**
- * Naive YAML frontmatter splitter. Good enough for the simple key:value templates
- * we ship. For richer parsing, swap to obsidian's metadataCache.getFileCache().
+ * Naive YAML frontmatter splitter. Supports simple `key: value` lines and
+ * literal block scalars (`key: |` followed by indented body lines). Good
+ * enough for the templates we ship; swap to obsidian's metadataCache for
+ * richer needs.
  */
 function splitFrontmatter(raw: string): FrontmatterParsed {
   if (!raw.startsWith("---\n")) return { frontmatter: null, body: raw };
@@ -107,11 +118,43 @@ function splitFrontmatter(raw: string): FrontmatterParsed {
   const yaml = raw.slice(4, end);
   const body = raw.slice(end + 4).replace(/^\r?\n/, "");
   const frontmatter: Record<string, unknown> = {};
-  for (const line of yaml.split(/\r?\n/)) {
+  const lines = yaml.split(/\r?\n/);
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
     const m = line.match(/^([A-Za-z0-9_]+):\s*(.*)$/);
-    if (!m) continue;
+    if (!m) {
+      i++;
+      continue;
+    }
     const [, key, value] = m;
-    frontmatter[key] = parseYamlScalar(value);
+    const trimmedValue = value.trim();
+    if (trimmedValue === "|" || trimmedValue === "|-") {
+      i++;
+      const blockLines: string[] = [];
+      let baseIndent: number | null = null;
+      while (i < lines.length) {
+        const sub = lines[i];
+        if (sub === "") {
+          blockLines.push("");
+          i++;
+          continue;
+        }
+        const indentMatch = sub.match(/^( +)/);
+        if (!indentMatch) break;
+        const indent = indentMatch[1].length;
+        if (baseIndent === null) baseIndent = indent;
+        if (indent < baseIndent) break;
+        blockLines.push(sub.slice(baseIndent));
+        i++;
+      }
+      let blockText = blockLines.join("\n");
+      if (trimmedValue === "|-") blockText = blockText.replace(/\n+$/, "");
+      frontmatter[key] = blockText;
+    } else {
+      frontmatter[key] = parseYamlScalar(value);
+      i++;
+    }
   }
   return { frontmatter, body };
 }

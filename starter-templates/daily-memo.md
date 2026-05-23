@@ -5,6 +5,12 @@ icon: calendar
 hotkey: null
 provider: null
 output: append
+new_note_filename: "{date}-daily"
+new_note_scaffold: |
+  > [!context]
+  > Date: {date}
+
+  <!-- Jot anything down — bullets, half-thoughts, tasks. Transform later. -->
 ---
 
 # Instruction

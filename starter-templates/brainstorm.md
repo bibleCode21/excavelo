@@ -5,6 +5,13 @@ icon: lightbulb
 hotkey: null
 provider: null
 output: append
+new_note_filename: "{date}-brainstorm-{slug}"
+new_note_scaffold: |
+  > [!context]
+  > Date: {date}
+  > Topic: 
+
+  <!-- Dump ideas, fragments, hunches. Transform groups them later. -->
 ---
 
 # Instruction

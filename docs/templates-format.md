@@ -39,6 +39,9 @@ has no content in the source, write "(none)".
 | `output` | enum | optional | Default action highlighted in preview modal: `append`, `new-file`, `preview-first`. Default `preview-first`. |
 | `output_folder` | string | optional | Default save path for "Save as new". Overridden by wiki config when wiki mode is on. |
 | `output_filename` | string | optional | Filename pattern. Placeholders: `{date}`, `{slug}`, `{template}`. Default `{date}-{slug}`. |
+| `new_note_folder` | string | optional | Folder used by the `New note from template` command. Default: vault root. |
+| `new_note_filename` | string | optional | Filename pattern for `New note from template`. Same placeholders as `output_filename`. `{slug}` falls back to `untitled` because the new note has no source slug yet — rename it after creation. |
+| `new_note_scaffold` | block string (YAML `\|`) | optional | Body of the new note. `{date}` is substituted. Typical use: a `[!context]` callout with empty fields for the user to fill, plus an HTML comment marking where the memo body starts. Falls back to a generic `[!context]` callout when absent. |
 
 ## Body
 

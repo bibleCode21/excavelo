@@ -6,6 +6,14 @@ hotkey: null
 provider: null
 output: new-file
 output_filename: "{date}-decision-{slug}"
+new_note_filename: "{date}-decision-{slug}"
+new_note_scaffold: |
+  > [!context]
+  > Date: {date}
+  > Decision area: 
+  > Stakeholders: 
+
+  <!-- Capture the discussion / constraints / options leading to the decision -->
 ---
 
 # Instruction

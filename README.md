@@ -27,8 +27,9 @@ and produces a clean, structured note via Claude. The memo body is preserved by 
    - **Anthropic API key** — paste a key from `console.anthropic.com`. Pay-per-token. Works on mobile.
    - **OpenAI-compatible endpoint** — point at OpenAI, Ollama, LM Studio, Groq, Together, OpenRouter, etc.
 3. Fill in **Default context** in settings — one paragraph about who you are and what you work on.
-4. Open any note, type or paste your memo content, and run **excaVelo: Transform note...** from the command palette (or click the wand icon in the ribbon).
-5. Pick a template. Review the preview. Save as new file, append below, or copy.
+4. Either open any note and type / paste your memo content, **or** run **excaVelo: New note from template** to create a fresh note with a pre-filled `[!context]` callout scaffold.
+5. Run **excaVelo: Transform note...** from the command palette (or click the wand icon in the ribbon).
+6. Pick a template. Review the preview. Save as new file, append below, or copy.
 
 ## How the plugin reads your note
 
@@ -60,6 +61,8 @@ The two lines inside the callout become the **note-specific context**. The four 
 If a note has no `[!context]` callout, the entire note becomes the memo body. The Default context from Settings still applies.
 
 Tip: if you only want to transform part of a long note, select that region in the editor before running Transform — selection wins over the full note body.
+
+If writing the `[!context]` callout by hand each time is tedious, use **excaVelo: New note from template** (command palette). It creates a fresh note with the callout scaffold and a placeholder body, so you only fill in the blanks and start writing.
 
 ## Templates
 

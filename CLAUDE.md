@@ -128,7 +128,7 @@ Schema for `excavelo.json` → `docs/architecture.md` section "Wiki config".
 
 | Surface | What |
 |---|---|
-| Command palette | `excaVelo: Transform note...`, `excaVelo: Transform with default template`, `excaVelo: Open templates folder` |
+| Command palette | `excaVelo: Transform note...`, `excaVelo: Transform with default template`, `excaVelo: New note from template`, `excaVelo: Open templates folder` |
 | Ribbon icon | One icon → opens chooser |
 | Hotkey | None bound by default; user assigns via Obsidian's standard hotkey settings |
 | Editor context menu | "excaVelo: Transform note" |

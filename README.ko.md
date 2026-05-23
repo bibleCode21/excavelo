@@ -25,8 +25,9 @@ excaVelo 는 아래 네 가지를 받습니다:
    - **Anthropic API 키** — `console.anthropic.com` 에서 발급받은 키를 설정에 붙여넣습니다. 토큰당 과금. 모바일에서도 동작합니다.
    - **OpenAI 호환 엔드포인트** — OpenAI 본가, Ollama, LM Studio, Groq, Together, OpenRouter 등 OpenAI Chat Completions 모양을 따르는 어디든 연결 가능.
 3. 설정의 **Default context** 에 본인이 누구이고 무엇을 다루는지 한 문단 정도 적어 둡니다.
-4. 아무 노트나 열어서 메모 본문을 적거나 붙여 넣은 뒤, 명령 팔레트에서 **excaVelo: Transform note...** 를 실행합니다 (또는 좌측 리본의 마법봉 아이콘 클릭).
-5. 템플릿을 고릅니다. 미리보기를 확인한 뒤 새 파일로 저장 / 아래에 추가 / 클립보드로 복사 중 선택합니다.
+4. 기존 노트를 열어서 메모를 적거나, 또는 명령 팔레트에서 **excaVelo: New note from template** 을 실행해 `[!context]` 콜아웃 scaffold 가 미리 박혀 있는 새 노트를 생성합니다.
+5. 명령 팔레트에서 **excaVelo: Transform note...** 를 실행합니다 (또는 좌측 리본의 마법봉 아이콘 클릭).
+6. 템플릿을 고릅니다. 미리보기를 확인한 뒤 새 파일로 저장 / 아래에 추가 / 클립보드로 복사 중 선택합니다.
 
 ## 플러그인이 노트를 읽는 방식
 
@@ -58,6 +59,8 @@ excaVelo 는 프롬프트를 세 영역으로 나눠 LLM 에 보냅니다:
 만약 노트에 `[!context]` 콜아웃이 없으면 전체 노트가 메모 본문으로 처리됩니다. Settings 의 Default context 는 이 경우에도 적용됩니다.
 
 팁: 긴 노트의 일부만 변환하고 싶으면 에디터에서 해당 영역을 선택한 뒤 Transform 을 실행하세요 — 선택 영역이 노트 전체보다 우선합니다.
+
+매번 `[!context]` 콜아웃을 손으로 적기 번거롭다면 명령 팔레트의 **excaVelo: New note from template** 을 사용하세요. 콜아웃 scaffold 와 빈 자리 placeholder 가 박힌 새 노트가 자동 생성되어, 빈칸만 채우고 본문을 적으면 됩니다.
 
 ## 템플릿
 

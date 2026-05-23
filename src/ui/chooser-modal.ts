@@ -6,15 +6,22 @@ import type { Template } from "../types";
  * a pre-selected template. The default template (per settings) is highlighted
  * at the top of the list.
  */
+export type ChooserMode = "transform" | "new-note";
+
 export class ChooserModal extends FuzzySuggestModal<Template> {
   constructor(
     app: App,
     private templates: Template[],
     private defaultName: string,
-    private onChoose: (t: Template) => void
+    private onChoose: (t: Template) => void,
+    mode: ChooserMode = "transform"
   ) {
     super(app);
-    this.setPlaceholder("Choose a template to transform with");
+    this.setPlaceholder(
+      mode === "transform"
+        ? "Choose a template to transform with"
+        : "Choose a template to start a new note from"
+    );
     this.modalEl.addClass("excavelo-chooser-modal");
   }
 

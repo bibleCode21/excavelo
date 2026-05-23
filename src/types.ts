@@ -51,6 +51,12 @@ export interface Template {
   outputFilename?: string;
   instruction: string;
   filePath: string;
+
+  // Optional fields used by the "New note from template" command. When absent
+  // the command falls back to vault root + a generic callout scaffold.
+  newNoteFolder?: string;
+  newNoteFilename?: string;
+  newNoteScaffold?: string;
 }
 
 export interface TransformContext {

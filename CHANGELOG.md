@@ -5,6 +5,22 @@ All notable changes to excaVelo are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-05-23
+
+### Added
+
+- **New command: `excaVelo: New note from template`**. Pick a template and the plugin creates a fresh note with a pre-filled `[!context]` callout scaffold, so you only fill in the blanks before writing the memo body. Removes the need to write the callout syntax by hand.
+- Each starter template now ships with three optional frontmatter fields for the new command:
+  - `new_note_folder` — where to create the note (default: vault root).
+  - `new_note_filename` — filename pattern with `{date}`, `{slug}`, `{template}` placeholders. `{slug}` falls back to `untitled` because the new note has no source slug yet — rename it after creation.
+  - `new_note_scaffold` — body of the new note (typically a `[!context]` callout). `{date}` is substituted with today's ISO date.
+- Frontmatter parser now supports YAML literal block scalars (`key: |` followed by indented body) so multi-line scaffolds remain readable in the template markdown.
+
+### Changed
+
+- All five starter templates now include `new_note_filename` and `new_note_scaffold`. Existing user-edited templates without these fields keep working — the new command falls back to a generic `[!context]` callout and a vault-root filename.
+- README + Korean README updated with the new command in Quick start and the "How the plugin reads your note" section. CLAUDE.md and docs/templates-format.md reflect the new frontmatter fields.
+
 ## [1.0.0] - 2026-05-22
 
 First public release. Published in the Obsidian Community Plugins catalog at https://community.obsidian.md/plugins/excavelo.

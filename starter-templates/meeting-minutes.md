@@ -6,6 +6,14 @@ hotkey: null
 provider: null
 output: new-file
 output_filename: "{date}-{slug}"
+new_note_filename: "{date}-meeting-{slug}"
+new_note_scaffold: |
+  > [!context]
+  > Date: {date}
+  > Participants: 
+  > Topic: 
+
+  <!-- Write your raw meeting notes below this line -->
 ---
 
 # Instruction
