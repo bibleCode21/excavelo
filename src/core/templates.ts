@@ -67,6 +67,43 @@ export class TemplateRegistry {
     }
   }
 
+  /**
+   * Overwrites the five bundled starter templates in the configured folder
+   * with the latest bundled versions. Used by Settings -> "Update starter
+   * templates" so a plugin upgrade can deliver new frontmatter fields
+   * (e.g. the `new_note_*` family introduced in 1.1.0) to an existing vault.
+   *
+   * Any edits the user made to the five starter files are lost. Other files
+   * in the templates folder are untouched.
+   */
+  async forceWriteStarter(): Promise<void> {
+    const folderPath = normalizePath(this.folderPath);
+    let folder = this.app.vault.getAbstractFileByPath(folderPath);
+    if (!folder) {
+      try {
+        await this.app.vault.createFolder(folderPath);
+      } catch {
+        // Folder may have been created by another process in the meantime.
+      }
+      folder = this.app.vault.getAbstractFileByPath(folderPath);
+    }
+    if (!(folder instanceof TFolder)) return;
+
+    for (const starter of STARTER_TEMPLATES) {
+      const targetPath = normalizePath(`${folderPath}/${starter.filename}`);
+      const existing = this.app.vault.getAbstractFileByPath(targetPath);
+      try {
+        if (existing instanceof TFile) {
+          await this.app.vault.modify(existing, starter.content);
+        } else {
+          await this.app.vault.create(targetPath, starter.content);
+        }
+      } catch {
+        // Race / FS issue — user can retry.
+      }
+    }
+  }
+
   private async parse(file: TFile): Promise<Template | null> {
     const raw = await this.app.vault.read(file);
     const { frontmatter, body } = splitFrontmatter(raw);

@@ -247,6 +247,16 @@ export class ExcaveloSettingTab extends PluginSettingTab {
           new Notice(t("settings.restore-starter.notice"));
         })
       );
+
+    new Setting(parent)
+      .setName(t("settings.update-starter.name"))
+      .setDesc(t("settings.update-starter.desc"))
+      .addButton((b) =>
+        b.setButtonText(t("settings.update-starter.button")).setWarning().onClick(async () => {
+          await this.plugin.templates.forceWriteStarter();
+          new Notice(t("settings.update-starter.notice"));
+        })
+      );
   }
 
   private renderUiSection(parent: HTMLElement): void {

@@ -5,6 +5,18 @@ All notable changes to excaVelo are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-05-23
+
+### Added
+
+- **"Update starter templates" button** in Settings -> Templates. Overwrites the five bundled starter templates in your vault with the latest versions shipped in the plugin. This lets a plugin upgrade roll new frontmatter fields (such as the `new_note_*` family introduced in 1.1.0) onto an existing vault without manually deleting files. The existing "Restore" button keeps its conservative behavior (only fills in missing files).
+- The new button is styled as a `setWarning` button (Obsidian's red action style) and the description states clearly that edits to the five starter files will be erased — there is no separate confirmation dialog.
+
+### Notes
+
+- Your own templates (any markdown file in the templates folder that is not one of the five starter filenames) are not touched by either button.
+- Behind the scenes the new path uses `vault.modify` on existing files and `vault.create` on missing ones, both via the Obsidian API.
+
 ## [1.2.0] - 2026-05-23
 
 ### Added
