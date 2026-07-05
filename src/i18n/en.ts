@@ -52,6 +52,13 @@ const en: Record<string, string> = {
 
   // Settings - top
   "settings.title": "ExcaVelo",
+  "settings.language.name": "Language",
+  "settings.language.desc":
+    "UI language for ExcaVelo. Auto follows Obsidian's app language. " +
+    "Command palette names update after the plugin reloads.",
+  "settings.language.option.auto": "Auto (follow Obsidian)",
+  "settings.language.option.en": "English",
+  "settings.language.option.ko": "한국어",
 
   // Settings - Connection
   "settings.connection.header": "Connection",

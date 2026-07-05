@@ -3,7 +3,7 @@ import type ExcaveloPlugin from "../main";
 import type { AuthMethod } from "../types";
 import { AnthropicProvider } from "../llm/anthropic";
 import { OpenAiCompatProvider } from "../llm/openai-compat";
-import { t } from "../i18n";
+import { setLocaleOverride, t } from "../i18n";
 
 const CLI_MODEL_ALIASES = ["sonnet", "opus", "haiku"];
 const CLI_MODEL_CUSTOM = "__custom__";
@@ -26,6 +26,23 @@ export class ExcaveloSettingTab extends PluginSettingTab {
     containerEl.addClass("excavelo-settings");
 
     containerEl.createEl("h2", { text: t("settings.title") });
+
+    new Setting(containerEl)
+      .setName(t("settings.language.name"))
+      .setDesc(t("settings.language.desc"))
+      .addDropdown((dd) =>
+        dd
+          .addOption("auto", t("settings.language.option.auto"))
+          .addOption("ko", t("settings.language.option.ko"))
+          .addOption("en", t("settings.language.option.en"))
+          .setValue(this.plugin.settings.language)
+          .onChange(async (v) => {
+            this.plugin.settings.language = v as never;
+            setLocaleOverride(this.plugin.settings.language);
+            await this.plugin.saveSettings();
+            this.display();
+          })
+      );
 
     this.renderConnectionSection(containerEl);
     this.renderContextSection(containerEl);

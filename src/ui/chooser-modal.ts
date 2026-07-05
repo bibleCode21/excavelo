@@ -1,6 +1,6 @@
 import { App, FuzzySuggestModal } from "obsidian";
 import type { Template } from "../types";
-import { t } from "../i18n";
+import { currentLocale, t } from "../i18n";
 
 /**
  * Template chooser. Shown when the user invokes "Transform note..." without
@@ -37,7 +37,9 @@ export class ChooserModal extends FuzzySuggestModal<Template> {
 
   getItemText(item: Template): string {
     const suffix = item.name === this.defaultName ? `  ${t("chooser.default-suffix")}` : "";
-    return `${item.name}${suffix} — ${item.description}`;
+    const desc =
+      currentLocale() === "ko" && item.descriptionKo ? item.descriptionKo : item.description;
+    return `${item.name}${suffix} — ${desc}`;
   }
 
   onChooseItem(item: Template): void {

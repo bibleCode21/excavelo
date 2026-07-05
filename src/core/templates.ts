@@ -112,6 +112,9 @@ export class TemplateRegistry {
     return {
       name,
       description: String(frontmatter.description ?? ""),
+      descriptionKo: frontmatter.description_ko
+        ? String(frontmatter.description_ko)
+        : undefined,
       icon: frontmatter.icon ? String(frontmatter.icon) : undefined,
       hotkey: (frontmatter.hotkey as string | null | undefined) ?? null,
       provider: (frontmatter.provider as never) ?? null,

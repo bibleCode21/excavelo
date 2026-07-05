@@ -13,7 +13,7 @@ import { detectWikiConfig } from "./wiki/detect";
 import { resolveWikiOutput } from "./wiki/mapping";
 import type { LlmProvider } from "./llm/llm";
 import type { AuthMethod, PluginSettings, Template, WikiConfig } from "./types";
-import { t } from "./i18n";
+import { setLocaleOverride, t } from "./i18n";
 
 export default class ExcaveloPlugin extends Plugin {
   settings!: PluginSettings;
@@ -108,6 +108,7 @@ export default class ExcaveloPlugin extends Plugin {
       anthropicApi: { ...DEFAULT_SETTINGS.anthropicApi, ...(data.anthropicApi ?? {}) },
       openAiCompat: { ...DEFAULT_SETTINGS.openAiCompat, ...(data.openAiCompat ?? {}) },
     };
+    setLocaleOverride(this.settings.language);
   }
 
   async saveSettings(): Promise<void> {

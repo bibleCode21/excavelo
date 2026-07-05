@@ -1,6 +1,7 @@
 import type { PluginSettings } from "../types";
 
 export const DEFAULT_SETTINGS: PluginSettings = {
+  language: "auto",
   authMethod: "claude-code-cli",
   claudeCodeCli: {
     binaryPath: "",

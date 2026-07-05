@@ -52,6 +52,13 @@ const ko: Record<string, string> = {
 
   // Settings - top
   "settings.title": "ExcaVelo",
+  "settings.language.name": "언어",
+  "settings.language.desc":
+    "ExcaVelo 의 UI 언어입니다. 자동은 Obsidian 앱 언어를 따릅니다. " +
+    "명령 팔레트의 명령 이름은 플러그인을 다시 로드해야 바뀝니다.",
+  "settings.language.option.auto": "자동 (Obsidian 설정 따름)",
+  "settings.language.option.en": "English",
+  "settings.language.option.ko": "한국어",
 
   // Settings - Connection
   "settings.connection.header": "연결",

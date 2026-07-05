@@ -28,6 +28,8 @@ export interface OpenAiCompatSettings {
 }
 
 export interface PluginSettings {
+  /** UI language; "auto" follows Obsidian's app language. */
+  language: "auto" | "en" | "ko";
   authMethod: AuthMethod;
   claudeCodeCli: ClaudeCodeCliSettings;
   anthropicApi: AnthropicApiSettings;
@@ -45,6 +47,8 @@ export interface PluginSettings {
 export interface Template {
   name: string;
   description: string;
+  /** Korean description shown in the chooser when the UI locale is Korean. */
+  descriptionKo?: string;
   icon?: string;
   hotkey?: string | null;
   provider?: AuthMethod | null;

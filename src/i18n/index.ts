@@ -2,16 +2,16 @@
  * Lightweight i18n for ExcaVelo.
  *
  * Locale detection (in order):
- *   1. `window.localStorage.getItem("language")` — Obsidian's own language
+ *   1. The plugin-level language setting, when not "auto".
+ *   2. `window.localStorage.getItem("language")` — Obsidian's own language
  *      setting; this is the community-plugin convention for reading the
  *      user's chosen UI language.
- *   2. `navigator.language` (first two letters) — best-effort fallback.
- *   3. `"en"` — final fallback.
+ *   3. `navigator.language` (first two letters) — best-effort fallback.
+ *   4. `"en"` — final fallback.
  *
- * The locale is captured once when the plugin loads. Switching Obsidian's
- * language at runtime requires reloading the plugin (toggle off/on in
- * Community plugins) for the new strings to take effect — same caveat
- * applies to most plugins that ship their own translations.
+ * Command palette entries register their names at plugin load, so switching
+ * the language requires reloading the plugin (toggle off/on in Community
+ * plugins) for those to update — other UI strings follow immediately.
  */
 
 import en from "./en";
@@ -21,7 +21,15 @@ type Dict = Record<string, string>;
 
 const dicts: Record<string, Dict> = { en, ko };
 
+let localeOverride: "en" | "ko" | null = null;
+
+/** Plugin-level language setting; "auto" defers to Obsidian's app language. */
+export function setLocaleOverride(v: "auto" | "en" | "ko"): void {
+  localeOverride = v === "auto" ? null : v;
+}
+
 function detectLocale(): string {
+  if (localeOverride) return localeOverride;
   try {
     const raw = window.localStorage.getItem("language");
     if (raw && dicts[raw]) return raw;
@@ -33,10 +41,8 @@ function detectLocale(): string {
   return "en";
 }
 
-const locale = detectLocale();
-
 export function t(key: string, vars?: Record<string, string | number>): string {
-  const dict = dicts[locale] ?? en;
+  const dict = dicts[detectLocale()] ?? en;
   let text = dict[key] ?? en[key] ?? key;
   if (vars) {
     for (const [k, v] of Object.entries(vars)) {
@@ -47,9 +53,9 @@ export function t(key: string, vars?: Record<string, string | number>): string {
 }
 
 /**
- * Exposed for diagnostics (e.g. logging which locale the plugin resolved to).
- * Avoid using this for behavior decisions — pass through `t()` instead.
+ * Exposed for locale-dependent display choices (e.g. template description_ko)
+ * and diagnostics. For plain strings, pass through `t()` instead.
  */
 export function currentLocale(): string {
-  return locale;
+  return detectLocale();
 }
