@@ -10,8 +10,12 @@ This file is the **index** to the spec. Keep it short. Details live in `docs/`.
 ## 1. The product in one sentence
 
 A user opens any note, scribbles fragmented memo content, and triggers a transform.
-The plugin assembles `(default context + per-note callout context + raw memo + chosen template instruction)`,
+The plugin assembles `(default context + per-note callout context + raw memo + optional STT transcript + optional git log + chosen template instruction)`,
 calls an LLM, and shows a preview modal where the user accepts the output as a new file or appends it.
+The transcript comes from files linked in a `[!stt]` callout; commit history
+comes from repo paths in a `[!git]` callout (desktop only), with branch names
+pasted into the memo resolved to per-branch logs automatically. The memo stays
+authoritative when sources conflict.
 
 Raw memo is **never overwritten by default**. The user explicitly chooses Replace if they want.
 
@@ -25,6 +29,7 @@ Raw memo is **never overwritten by default**. The user explicitly chooses Replac
 4. **Raw memo is preserved** — the default output path is "save as new file" or "append below". Replace must be an explicit click, never default.
 5. **Mobile-safe code paths** — the Claude Code CLI provider must check `Platform.isMobile` and refuse cleanly; the plugin as a whole works on mobile via the API-key path.
 6. **Never commit `data.json`** — `.gitignore` excludes it. It holds the user's API key during development.
+7. **Preservation-first output** — every fact in the **raw memo** must survive into the output; no length caps in templates. STT transcripts are secondary sources: templates may select from them, and a template may summarize only by saying so explicitly in its instruction (the meeting templates do). Policy and rationale: `docs/prd.md`.
 
 ---
 
@@ -35,7 +40,7 @@ Three paths, user picks at setup (auto-detect helps):
 | Method | When | How |
 |---|---|---|
 | **Claude Code CLI** (primary) | User has Claude Code installed and logged in | Plugin spawns `claude -p --output-format json` (prompt via stdin) and parses the JSON response. **No API key needed** — Claude Code handles its own OAuth. Desktop only. |
-| **Anthropic API key** (fallback) | User pasted a key from console.anthropic.com | Plugin calls Anthropic Messages API via SDK. Works on mobile. |
+| **Anthropic API key** (fallback) | User pasted a key from console.anthropic.com | Plugin calls the Anthropic Messages API directly via Obsidian `requestUrl` (CORS-free, mobile-safe, no SDK). Works on mobile. |
 | **OpenAI-compatible** (alternative) | User wants OpenAI / Ollama / Groq / LM Studio / etc. | Plugin calls `${baseUrl}/chat/completions`. Single code path covers all providers that expose the OpenAI shape. |
 
 The team this plugin was designed for shares a **single Claude Max** subscription via
@@ -61,21 +66,22 @@ ExcaVelo/
 ├── LICENSE                    MIT
 ├── CLAUDE.md                  this file — developer spec index
 ├── docs/                      details that don't belong in CLAUDE.md
+│   ├── prd.md                 product requirements + output fidelity policy
 │   ├── architecture.md
 │   ├── adapters.md
 │   └── templates-format.md
+├── scripts/                   generate-starter-templates.mjs (prebuild hook)
 ├── src/
 │   ├── main.ts                Plugin entry — commands, ribbon, status bar, events
 │   ├── types.ts               shared TypeScript types
+│   ├── i18n/                  UI strings (en source of truth, ko overlay); LLM output language is separate (prd.md)
 │   ├── settings/
 │   ├── ui/
 │   ├── llm/                   one file per provider; all implement LlmProvider
-│   ├── core/                  template scan, context extraction, prompt build, transform orchestrator;
-│   │                          `starter-templates.ts` inlines the 5 starter templates as a TS module so
-│   │                          they ship in the plugin bundle
+│   ├── core/                  template scan, context extraction, git log input, prompt build, transform orchestrator;
+│   │                          `starter-templates.ts` is auto-generated from starter-templates/*.md at build
 │   └── wiki/                  optional wiki-vault integration (Level 1)
-└── starter-templates/         source-of-truth markdown copies (read for GitHub review);
-                               the runtime copy is the inlined module in src/core/starter-templates.ts
+└── starter-templates/         source-of-truth markdown (edit these; the build inlines them into main.js)
 ```
 
 ---
@@ -86,7 +92,15 @@ ExcaVelo/
 [active note in editor]
          |
          v
-extractContext()        --> { perNoteContext, rawBody }
+extractContext()        --> { perNoteContext, rawBody, sttLinks, gitSpecs }
+         |
+         v
+loadTranscript()        --> transcript text from [!stt]-linked files (optional)
+         |
+         v
+loadGitLog()            --> commit log from [!git] repo specs; branch names
+                            pasted in the memo resolve to per-branch logs
+                            (optional, desktop)
          |
          v
 TemplateRegistry        --> Template (instruction + frontmatter)
@@ -94,7 +108,8 @@ TemplateRegistry        --> Template (instruction + frontmatter)
          v
 buildPrompt()           --> PromptInput { system, user }
                             (system = cacheable USER CONTEXT;
-                             user = note-context + raw memo + task + output rules)
+                             user = note-context + raw memo + transcript
+                             + git log + task + output rules)
          |
          v
 resolveProvider()       --> LlmProvider (CLI / Anthropic / OpenAI-compat)
@@ -133,6 +148,7 @@ Schema for `excavelo.json` → `docs/architecture.md` section "Wiki config".
 | Hotkey | None bound by default; user assigns via Obsidian's standard hotkey settings |
 | Editor context menu | "ExcaVelo: Transform note" |
 | Status bar | "ExcaVelo: ready" / "ExcaVelo: thinking..." — click opens this plugin's settings tab |
+| Language | Plugin-level setting (auto / en / ko); auto follows Obsidian's app language. Template descriptions localize via `description_ko` frontmatter |
 | Selection support | If a selection is active, only the selection becomes the raw memo |
 
 ---
@@ -163,6 +179,8 @@ Pre-submission checklist lives in `README.md` (user-facing). Developer checklist
 
 ## 10. Tooling
 
-- **Package manager**: pnpm. Declared via `packageManager` field in `package.json`
-  so `corepack enable` works for contributors. `.npmrc` sets `auto-install-peers=true`.
+- **Package manager**: pnpm, version pinned via `packageManager` in `package.json`
+  (use `corepack enable` so every machine gets that exact version).
+  `pnpm-workspace.yaml` allows esbuild's postinstall (pnpm 10+ blocks dependency
+  build scripts by default). `.npmrc` sets `auto-install-peers=true`.
 - **Lockfile**: `pnpm-lock.yaml`. Commit it. Do not also commit `package-lock.json`.

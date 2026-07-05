@@ -4,22 +4,24 @@
 
 | Module | Responsibility |
 |---|---|
-| `src/main.ts` | Plugin lifecycle, command/ribbon/status-bar registration, vault event wiring. Thin orchestrator only. |
+| `src/main.ts` | Plugin lifecycle, command/ribbon/status-bar registration, vault event wiring, provider resolution (incl. mobile CLI-to-API fallback). Thin orchestrator only. |
 | `src/types.ts` | All shared TypeScript types. Single source of truth for cross-module shapes. |
+| `src/i18n/` | UI strings — `en.ts` source of truth, `ko.ts` overlay, `index.ts` locale resolution. Locale = plugin language setting, falling back to Obsidian's app language. |
 | `src/settings/settings.ts` | `DEFAULT_SETTINGS` constant. Schema migrations live here when fields change. |
 | `src/settings/settings-tab.ts` | Obsidian `PluginSettingTab` — UI only, no logic. |
-| `src/ui/chooser-modal.ts` | `FuzzySuggestModal` listing templates; default highlighted. |
+| `src/ui/chooser-modal.ts` | `FuzzySuggestModal` listing templates; default highlighted; `description_ko` shown for Korean locale. |
 | `src/ui/preview-modal.ts` | Renders the LLM response, exposes commit actions. Per-template `output` decides the highlighted button. |
 | `src/ui/onboarding-modal.ts` | First-run setup wizard. Calls into the CLI detector. |
 | `src/llm/llm.ts` | `LlmProvider` interface + `LlmError`. |
 | `src/llm/claude-code-cli.ts` | Spawns `claude -p`. Desktop only. Refuses to instantiate on mobile. |
-| `src/llm/anthropic.ts` | Direct Anthropic SDK call. |
-| `src/llm/openai-compat.ts` | Generic OpenAI-shape HTTP. Covers OpenAI, Ollama, Groq, Together, LM Studio, etc. |
-| `src/core/templates.ts` | Scans `<vault>/<templatesFolder>/*.md`, parses frontmatter, returns `Template[]`. `ensureStarter()` copies the bundled starter templates into the vault on first run when the folder is empty. |
-| `src/core/starter-templates.ts` | The 5 starter templates inlined as a TS module so they ship inside `main.js`. Hand-synced with the on-disk `starter-templates/*.md` copies — when one changes, update both. |
-| `src/core/context.ts` | Extracts `[!context]` callout from note body and returns `{ perNoteContext, rawBody }`. |
-| `src/core/prompt.ts` | Assembles a `PromptInput { system, user }`. `system` carries the cacheable USER CONTEXT block; `user` carries note-specific context, raw memo, task, output rules. |
-| `src/core/transform.ts` | Orchestrator: pulls context, builds prompt, calls provider, returns response. UI-agnostic. |
+| `src/llm/anthropic.ts` | Anthropic Messages API over Obsidian `requestUrl` (no SDK — see `adapters.md`). Cacheable system block; cost table lives here. |
+| `src/llm/openai-compat.ts` | Generic OpenAI-shape HTTP over `requestUrl`. Covers OpenAI, Ollama, Groq, Together, LM Studio, etc. |
+| `src/core/templates.ts` | Scans `<vault>/<templatesFolder>/*.md`, parses frontmatter, returns `Template[]`. `ensureStarter()` copies the bundled starter templates into the vault on first run when the folder is empty; `forceWriteStarter()` backs the "Update starter templates" button. |
+| `src/core/starter-templates.ts` | The bundled starter templates inlined as a TS module so they ship inside `main.js`. Auto-generated from `starter-templates/*.md` by `scripts/generate-starter-templates.mjs` (prebuild hook) — edit the markdown, never this file. |
+| `src/core/context.ts` | Extracts `[!context]`, `[!stt]`, and `[!git]` callouts from the note body; returns `{ perNoteContext, rawBody, sttLinks, gitSpecs }`. |
+| `src/core/git-log.ts` | Parses `[!git]` specs and runs `git log` (message + diffstat) on named local repos; resolves branch names pasted into the memo to per-branch logs. Desktop only, lazy node requires. |
+| `src/core/prompt.ts` | Assembles a `PromptInput { system, user }`. `system` carries the cacheable USER CONTEXT block; `user` carries note-specific context, raw memo, transcript/git sections, task, and the OUTPUT RULES (preservation-first contract plus transcript/git rules when those sources are attached). |
+| `src/core/transform.ts` | Orchestrator: pulls context, loads `[!stt]` transcripts and `[!git]` logs, builds prompt, calls provider, returns response. UI-agnostic. |
 | `src/wiki/detect.ts` | Reads vault-root `excavelo.json`. Returns `null` when not in wiki mode. |
 | `src/wiki/mapping.ts` | Resolves save path + filename + frontmatter preset for a given template under the active wiki config. |
 
@@ -35,7 +37,7 @@ Sits at vault root. Presence + `wikiMode: true` flips the plugin into wiki mode.
   "sourcesPath": "wiki/sources",
   "contextFromClaudeMd": false,
   "templateMapping": {
-    "meeting-minutes": {
+    "meeting": {
       "savePath": "wiki/sources",
       "filenamePattern": "{date}-{slug}",
       "frontmatterPreset": {

@@ -33,9 +33,11 @@ has no content in the source, write "(none)".
 |---|---|---|---|
 | `name` | string | yes | Shown in chooser. Used as the template ID. Must be unique within the folder. |
 | `description` | string | yes | One-line summary for the chooser. |
+| `description_ko` | string | optional | Korean chooser description, shown when the UI locale is Korean. |
 | `icon` | string | optional | Lucide icon name. Reserved for future UI use. |
 | `hotkey` | string \| null | optional | Reserved. Hotkeys are still bound via Obsidian's settings, not the template. |
 | `provider` | enum \| null | optional | Per-template provider override. Values: `claude-code-cli`, `anthropic-api`, `openai-compat`. `null` uses the global setting. |
+| `model` | string \| null | optional | Per-template model override, passed to the provider (`sonnet`, `opus`, a full model id...). `null` uses the provider's own model setting. |
 | `output` | enum | optional | Default action highlighted in preview modal: `append`, `new-file`, `preview-first`. Default `preview-first`. |
 | `output_folder` | string | optional | Default save path for "Save as new". Overridden by wiki config when wiki mode is on. |
 | `output_filename` | string | optional | Filename pattern. Placeholders: `{date}`, `{slug}`, `{template}`. Default `{date}-{slug}`. |
@@ -64,11 +66,75 @@ Recommendations for instructions:
 - Use Markdown headings in the instruction itself; the LLM mirrors them.
 - Keep instructions under ~300 lines. Beyond that, output drifts.
 
+## STT transcripts as input
+
+A memo may attach speech-to-text transcript files via a `[!stt]` callout:
+
+```markdown
+> [!stt] [[2026-07-04 meeting recording]]
+```
+
+The plugin reads every `[[link]]` in `[!stt]` callouts and passes the file
+contents to the LLM as a `MEETING TRANSCRIPT (STT)` section after the raw
+memo. The prompt builder adds transcript rules automatically: the memo wins
+on conflict, small talk is ignored, and unintelligible passages are marked
+as STT-damaged instead of guessed. Template instructions do not need to
+restate any of this — they can simply assume a transcript may be present.
+
+## Git history as input
+
+A memo may attach commit history from local repositories via a `[!git]`
+callout (desktop only — spawns the git binary):
+
+```markdown
+> [!git] C:/git/repo-a
+> C:/git/repo-b
+> [!git] D:/git/excavelo since:2026-07-01 until:2026-07-05
+```
+
+One spec per line (several lines = several repositories): a repo path
+(spaces allowed), then optional `since:` / `until:` / `branches:` — dates
+are ISO, `today`, or `7d`. Per commit the LLM sees date, author, subject,
+body, and a diffstat (no full diffs). Prompt rules tell the model to treat
+the log as ground truth and to group work by intent, not commit-by-commit.
+`work-report.md` is built for this input.
+
+Branch selection is automatic: when the memo body contains branch names —
+typically lines pasted straight from git, `branch-name  subject` — every
+pasted name that exists in a listed repository gets its own
+`--- branch: <name>` section, with commits already on the default branch
+(`origin/HEAD`) subtracted so a section holds that branch's own work. Only
+names that really exist as branches count, so file paths or URLs in the memo
+cannot mismatch. Pasted branches are an explicit selection: no date window
+applies unless the spec sets `since:`/`until:`. A repository with no pasted
+branches contributes a plain log of its checked-out branch (default window:
+last 7 days). `branches:<glob>` (e.g. `branches:feature/2026/*`, `*` crosses
+`/`) instead scans every matching branch within the window — useful without
+a pasted list. Only local state is read — `git fetch` first if the branches
+live on a remote.
+
+When the memo carries a work list — pasted branch lines, issue titles, or
+ticket ids — prompt rules make it a pure filter: an entry with no matching
+commits produces no output (never a fabricated one), a ticket id shared
+between an issue and a branch name is the strongest match signal, and a
+pasted branch name selects exactly that branch's commits.
+
 ## Starter templates
 
-The plugin ships five starter templates:
+The plugin ships eight starter templates:
 
-- `meeting-minutes.md`
+- `meeting.md` — cross-team/external meeting; purpose, key points by topic,
+  confirmed decisions, implications, action items. Deliberately selective
+  (an explicit override of the preservation rule, stated in its instruction);
+  no speaker attribution; participants from the memo only
+- `task-meeting.md` — internal working-level meeting; key points by topic
+  with technical detail kept, decisions, open questions, implications. Same
+  no-attribution rules
+- `work-report.md` — work report / release notes from `[!git]` commit history
+  plus memo; grouped by intent, outcomes first
+- `work-log.md` — dated work history (업무내역) from `[!git]` commits: date
+  blocks, module blocks, `[수정/추가] [scope]` one-line entries for
+  non-developer readers
 - `1on1.md`
 - `daily-memo.md`
 - `decision-record.md`
@@ -78,9 +144,13 @@ Their source-of-truth markdown lives in the repo's `starter-templates/` folder
 (easy to browse and edit on GitHub), but the runtime copy is the inlined TS
 module at `src/core/starter-templates.ts` — Obsidian only loads `main.js` /
 `manifest.json` / `styles.css`, so the markdown files themselves are not
-present at the user's machine. When you update one, update both copies.
+present at the user's machine. The module is auto-generated from the markdown
+by `scripts/generate-starter-templates.mjs` (a prebuild/predev hook): edit the
+markdown, never the module.
 
 On first run, if `templatesFolder` is empty, `TemplateRegistry.ensureStarter()`
 writes the inlined templates into the vault. Users can edit, delete, or
 override afterwards; existing files are never overwritten. A "Restore starter
-templates" button in Settings recreates any missing entries on demand.
+templates" button in Settings recreates any missing entries on demand, and
+"Update starter templates" overwrites the starter files with the plugin's
+latest versions.

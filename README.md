@@ -64,18 +64,56 @@ Tip: if you only want to transform part of a long note, select that region in th
 
 If writing the `[!context]` callout by hand each time is tedious, use **ExcaVelo: New note from template** (command palette). It creates a fresh note with the callout scaffold and a placeholder body, so you only fill in the blanks and start writing.
 
+## Extra sources: STT transcripts and git history
+
+Two more callouts attach source material to a transform. The memo stays the
+authoritative record; these fill in what it omits.
+
+**`[!stt]`** links speech-to-text transcript files (meeting recordings):
+
+```markdown
+> [!stt] [[2026-07-04 meeting recording]]
+```
+
+The meeting templates use the transcript to recover details, figures, and
+decisions your memo skipped — recognition errors and small talk are handled
+by built-in prompt rules, and the memo wins on conflict.
+
+**`[!git]`** names local git repositories whose commit history feeds the
+transform (desktop only):
+
+```markdown
+> [!git] C:/git/project-a
+> D:/git/project-b since:2026-06-26
+```
+
+One path per line; optional `since:` / `until:` (ISO dates, `today`, `7d`).
+If you paste branch lines (`branch-name  subject`, straight from git output)
+into the memo, ExcaVelo looks those branches up in the listed repositories
+and feeds exactly their commits — ideal for one-branch-per-issue teams. The
+`work-report` and `work-log` templates are built for this input.
+
 ## Templates
 
 Templates are plain markdown files under `excaVelo/templates/` in your vault.
 Edit them, add new ones, share them. The format is documented in
-[`docs/templates-format.md`](docs/templates-format.md). Five starter templates
+[`docs/templates-format.md`](docs/templates-format.md). Eight starter templates
 are copied in on first run:
 
-- `meeting-minutes` — participants, discussion, decisions, action items
-- `1on1` — themes, decisions, watch items, tone signal
+- `meeting` — cross-team/external meeting: purpose, key points, confirmed decisions, implications, action items
+- `task-meeting` — internal working meeting: key points by topic with technical detail, decisions, open questions
+- `work-report` — narrative work report / release notes from git history plus memo
+- `work-log` — dated work-history changelog from git commits, written for non-developer readers
+- `1on1` — complete 1:1 record by topic, decisions, watch items
 - `daily-memo` — highlights, grouped notes, actions, open questions
 - `decision-record` — ADR-style record
 - `brainstorm` — clustered themes, strong candidates, next steps
+
+Outputs are **preservation-first**: everything in your memo survives into the
+result (templates restructure, they do not summarize away content), except
+where a template explicitly says it selects — the cross-team `meeting`
+template does. Each template can also pin a model via `model` frontmatter,
+and Settings has a model picker per provider.
 
 ## Authentication paths
 

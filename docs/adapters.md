@@ -8,25 +8,19 @@ interface LlmProvider {
   generate(input: PromptInput, opts?: GenerateOptions): Promise<LlmResponse>;
   ping(): Promise<{ ok: boolean; detail?: string }>;
 }
-
-interface PromptInput {
-  system: string;  // cacheable USER CONTEXT block (may be empty)
-  user: string;    // dynamic per-transform body
-}
 ```
 
-`generate` is the workhorse. `ping` is for "Test connection" in settings.
-
-`PromptInput` separates the stable, cache-friendly context from the dynamic
-per-transform body so providers that support prompt caching (Anthropic) can
-attach a cache-control breakpoint to the system block.
+`generate` is the workhorse; `ping` is for "Test connection" in settings.
+`PromptInput` is a `{ system, user }` pair: `system` carries the cacheable
+always-on USER CONTEXT block (may be empty), `user` carries everything that
+varies per transform. Each adapter maps the pair onto its wire format.
 
 ## Claude Code CLI (`claude-code-cli.ts`) — primary
 
 The team's expected path. Plugin spawns the user's already-authenticated
 Claude Code, so no API key is handled by the plugin at all.
 
-### Spawn shape (Claude Code 2.1.x)
+### Spawn shape
 
 ```
 claude
@@ -36,68 +30,80 @@ claude
   [--model <model-id>]
 ```
 
-The prompt is piped via stdin (avoids OS argv length limits for long memos).
+The prompt is written to stdin, not passed as an argument: it is user content,
+and on the Windows .cmd shim path the command line travels through cmd.exe
+(see "Windows .cmd shims" below). `claude -p` with no prompt argument reads
+the prompt from stdin. The `system` block is concatenated ahead of the user
+content — Claude Code manages prompt caching internally.
 
-`--output-format json` returns a single JSON object, e.g.:
+`--model` comes from the template's `model` frontmatter, falling back to the
+CLI settings model (default `sonnet`; empty string means "omit the flag and
+let Claude Code use its own default"). Because the value can ride the cmd.exe
+command line on the .cmd shim path, it is validated against
+`^[A-Za-z0-9._-]+$` and rejected otherwise.
+
+`--output-format json` returns a single JSON object roughly:
 
 ```json
 {
-  "type": "result",
-  "subtype": "success",
   "result": "the assistant text",
-  "usage": {
-    "input_tokens": 5,
-    "output_tokens": 6,
-    "cache_creation_input_tokens": 13897,
-    "cache_read_input_tokens": 19211
-  },
-  "modelUsage": {
-    "claude-opus-4-7[1m]": { "inputTokens": 5, "outputTokens": 6, "costUSD": 0.097 }
-  },
-  "total_cost_usd": 0.0966
+  "model": "claude-sonnet-4-6",
+  "usage": { "input_tokens": 1234, "output_tokens": 567 },
+  "total_cost_usd": 0.0123
 }
 ```
 
-Mapping to `LlmResponse`:
-
-- `result` -> `text`
-- `usage.input_tokens` / `usage.output_tokens` -> `inputTokens` / `outputTokens`
-- `total_cost_usd` -> `costUsd`
-- `modelUsed` = `parsed.model` if present, else first key of `parsed.modelUsage`
-  (current Claude Code releases do not emit a top-level `model` field — the
-  active model identity is the only key of `modelUsage`).
-
-Prompt caching is enabled by Claude Code itself; `usage.cache_creation_input_tokens`
-and `usage.cache_read_input_tokens` surface in the response and account for a
-large share of `total_cost_usd` when the same template / default context is
-reused across transforms. No plugin-side work is required for the CLI path.
+Parse `result` for the user-visible output. Map `usage` and `total_cost_usd` to
+`LlmResponse.{inputTokens, outputTokens, costUsd}`. `modelUsage` may list
+several models (a haiku helper alongside the main one); `modelUsed` is the one
+with the most output tokens. `is_error: true` or a missing `result` string is
+surfaced as an `LlmError`.
 
 ### Detection
 
-`ClaudeCodeCliProvider.detect(binaryHint)`:
+`ClaudeCodeCliProvider.detect(binaryHint, force?)` probes candidates in order
+and accepts the first whose `--version` exits 0. Returns `{ found, version, path }`,
+cached per session (`force` re-probes).
 
-1. If `binaryHint` is non-empty, try it first.
-2. Otherwise probe `claude` on PATH via a `--version` invocation.
-3. On Windows, also probe `%LOCALAPPDATA%\Programs\claude\claude.exe` and
-   `%ProgramFiles%\claude\claude.exe`.
-4. On macOS / Linux, also probe `/usr/local/bin/claude`,
-   `/opt/homebrew/bin/claude`, `~/.local/bin/claude`, `~/.claude/local/claude`.
-5. Return `{ found, version, path }`.
+Candidate order:
+
+1. `binaryHint` (user's binary-path setting). A bare name is resolved like the
+   shell would; a path is used as-is.
+2. `claude` on PATH — via `where.exe` on Windows (also applies PATHEXT),
+   `command -v` on macOS/Linux. Obsidian is an Electron app and may launch
+   with a PATH missing the user's shell additions (especially on macOS), which
+   is why the static locations below matter.
+3. Native installer locations: `%USERPROFILE%\.local\bin\claude.exe` (Windows,
+   `irm https://claude.ai/install.ps1 | iex`), `~/.local/bin/claude` (macOS/Linux).
+4. npm global install locations (`npm install -g @anthropic-ai/claude-code`):
+   - Windows: `%APPDATA%\npm\claude.cmd`, `%ProgramFiles%\nodejs\claude.cmd`
+   - macOS/Linux: `/usr/local/bin`, `/opt/homebrew/bin`, `~/.npm-global/bin`,
+     `~/.volta/bin`, `~/.nvm/versions/node/*/bin` (newest first)
+5. If nothing matched: ask `npm prefix -g` and probe that prefix — covers npm
+   under version managers with non-standard prefixes.
+
+Once detected (onboarding or "Test connection"), the resolved absolute path is
+persisted to settings so later spawns do not depend on PATH.
+
+### Windows .cmd shims
+
+npm installs `claude.cmd`, a batch shim — not an .exe. Node's `spawn` refuses
+to execute `.cmd`/`.bat` directly (EINVAL, CVE-2024-27980 hardening), so
+`buildCliSpawn()` routes those through `cmd.exe /d /s /c`. Only trusted,
+plugin-controlled args may travel on that command line; the prompt itself must
+be written to stdin in `generate()`, never interpolated into the command.
 
 ### Failure modes to handle
 
 - `ENOENT` → "Claude Code not found. Install it from claude.ai/code or switch to API key."
 - Non-zero exit with `not logged in` in stderr → "Run `claude login` and re-try."
-- Timeout (`settings.timeoutSeconds`) → "Claude Code took too long. Try a shorter memo or raise the timeout."
+- Timeout (`settings.timeoutSeconds`, default 720s — long STT transcripts need minutes) → "Claude Code took too long. Try a shorter memo or raise the timeout."
 - stderr noise without failure → ignore; only `result` parsing controls success.
 
 ### Mobile
 
-Constructor throws `LlmError` if `Platform.isMobile`. `ExcaveloPlugin.providerFor()`
-catches this implicit constraint earlier: on mobile, a `claude-code-cli`
-request is routed to `AnthropicProvider` (with a one-time `Notice` so the user
-is aware). If the user has not configured an Anthropic API key, the routing
-throws a clear "configure a key in Settings" error.
+Constructor throws `LlmError` if `Platform.isMobile`. `main.ts` falls back to
+the API-key provider in that case.
 
 ### Anthropic ToS note
 
@@ -109,33 +115,42 @@ so users know what they are opting into.
 
 ## Anthropic API direct (`anthropic.ts`)
 
-Standard SDK usage via `@anthropic-ai/sdk` Messages API. Runs in the Electron
-renderer, so the client is constructed with `dangerouslyAllowBrowser: true`
-(the API key is local-only; no third-party JS reaches it).
+Calls the Messages API over Obsidian's `requestUrl`, not `@anthropic-ai/sdk`.
+Decided 2026-07-04: `requestUrl` bypasses CORS, behaves identically on desktop
+and mobile (this provider is the mobile path), and keeps the SDK out of the
+bundle. The request is two headers and three body fields; the SDK bought
+nothing.
 
-Current shape:
-
-- Default model: `claude-sonnet-4-6`. User-overridable in settings.
-- `max_tokens` default 4096.
-- `PromptInput.system` (when non-empty) is sent as a system content block with
-  `cache_control: { type: "ephemeral" }`. Below the model's minimum cache size
-  the API silently bills at the normal rate — there is no per-request
-  threshold check on the plugin side.
-- `messages` carries a single `role: "user"` block with `PromptInput.user`.
-- Errors (401 / 429 / network) are surfaced as `LlmError` with the API's
-  status + message.
+- `POST https://api.anthropic.com/v1/messages` with `x-api-key` and
+  `anthropic-version: 2023-06-01`.
+- Default model `claude-sonnet-4-6`, user-overridable in settings.
+- `max_tokens` defaults to 8192 — preservation-first outputs scale with input
+  (`prd.md`), so leave headroom rather than the tutorial 4096.
+- 401 / 429 / other HTTP errors and network failures surface as `LlmError`
+  carrying the API's error message.
+- `ping` = `GET /v1/models?limit=1` — free, and validates the key.
+- `listModels` = `GET /v1/models?limit=1000` — feeds the settings model
+  dropdown. Fired only from the "Load model list" button (hard rule 2:
+  network calls need an explicit user action).
+- Prompt caching: a non-empty `input.system` (the USER CONTEXT block) is sent
+  as a system block with `cache_control: { type: "ephemeral" }`. Blocks below
+  the model's minimum cache size are silently billed as normal tokens.
 
 ### Cost reporting
 
-`LlmResponse` exposes `inputTokens` and `outputTokens` from the API response.
-The provider does **not** compute a USD cost — `costUsd` stays `undefined`
-for this path (the preview modal hides the cost field when absent). Adding a
-per-model price table is a follow-up if users want it.
+Anthropic responses include `usage.input_tokens` and `usage.output_tokens`. The
+plugin computes cost from `COST_PER_MTOK` in `anthropic.ts`, prefix-matched on
+the model id. Unknown models report tokens but no cost. Update the table
+alongside anthropic.com/pricing.
 
 ## OpenAI-compatible (`openai-compat.ts`)
 
-Uses the `openai` npm SDK with `baseURL` overridden. The SDK is tolerant of
-non-OpenAI endpoints as long as they implement `/v1/chat/completions`.
+Plain `requestUrl` `POST ${baseUrl}/chat/completions` (same rationale as the
+Anthropic adapter — no `openai` SDK). `Authorization: Bearer` header only when
+an API key is set, so local providers work keyless. No `max_tokens` is sent by
+default; endpoint defaults are sane and preservation-first outputs scale with
+input. `ping` = `GET ${baseUrl}/models`. A 404 on generate hints that the base
+URL usually needs to end in `/v1`.
 
 Tested target endpoints:
 
