@@ -1,0 +1,4 @@
+# pnpm 10+ blocks dependency build scripts by default. esbuild's postinstall
+# fetches its platform binary and is required for the build to run.
+allowBuilds:
+  esbuild: true
