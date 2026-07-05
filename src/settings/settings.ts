@@ -21,7 +21,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
     model: "gpt-4o-mini",
   },
   defaultContext: "",
-  defaultTemplate: "meeting-minutes",
+  defaultTemplate: "meeting",
   templatesFolder: "excaVelo/templates",
   showStatusBar: true,
   showCostInPreview: true,

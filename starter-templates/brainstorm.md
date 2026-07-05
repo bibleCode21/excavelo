@@ -1,6 +1,7 @@
 ---
 name: brainstorm
-description: Brainstorm cleanup — cluster ideas, surface themes, propose next steps
+description: Brainstorm cleanup — cluster every idea, surface themes, propose next steps
+description_ko: 브레인스토밍 정리 — 아이디어 묶기, 주제 도출, 다음 단계 제안
 icon: lightbulb
 hotkey: null
 provider: null
@@ -16,23 +17,24 @@ new_note_scaffold: |
 
 # Instruction
 
-You will receive a scattered list of ideas. Cluster them, name the clusters,
-and surface what looks promising. Preserve the language of the raw memo.
+You will receive a scattered list of ideas. Cluster them without losing any:
+every idea in the source must appear in the output.
 
 ## Themes
 
-Group the ideas into 3-6 themes. For each theme: a short name + the ideas
-that belong, one per bullet. Quote phrases verbatim when distinctive.
+Group every idea into themes. Each idea appears in exactly one theme, one per
+bullet, with its substance preserved — quote distinctive phrasing verbatim.
+Create as many themes as the material needs; no limit on theme count or size.
 
 ## Strong candidates
 
-Two to three ideas that stand out — by novelty, feasibility, or fit. One
-sentence each on why.
+_Model judgment — a selection from the themes above, not a replacement._
+
+The ideas that stand out — by novelty, feasibility, or fit — and why.
 
 ## Open questions
 
-Bullets of questions raised by the brainstorm. These help direct further
-research.
+Questions raised by the brainstorm. These help direct further research.
 
 ## Next steps
 

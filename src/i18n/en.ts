@@ -127,7 +127,7 @@ const en: Record<string, string> = {
   "settings.restore-starter.button": "Restore",
   "settings.restore-starter.notice": "Starter templates restored where missing.",
   "settings.update-starter.name": "Update starter templates",
-  "settings.update-starter.desc": "Overwrite the five starter templates in the folder above with the latest versions from the plugin. This will erase any edits you made to those five files. Your own templates are not touched.",
+  "settings.update-starter.desc": "Overwrite the bundled starter templates in the folder above with the latest versions from the plugin. This will erase any edits you made to those files. Your own templates are not touched.",
   "settings.update-starter.button": "Update",
   "settings.update-starter.notice": "Starter templates updated to the latest versions.",
 

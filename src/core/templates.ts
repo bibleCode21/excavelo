@@ -68,13 +68,13 @@ export class TemplateRegistry {
   }
 
   /**
-   * Overwrites the five bundled starter templates in the configured folder
-   * with the latest bundled versions. Used by Settings -> "Update starter
-   * templates" so a plugin upgrade can deliver new frontmatter fields
-   * (e.g. the `new_note_*` family introduced in 1.1.0) to an existing vault.
+   * Overwrites the bundled starter templates in the configured folder with
+   * the latest bundled versions. Used by Settings -> "Update starter
+   * templates" so a plugin upgrade can deliver new frontmatter fields or
+   * instruction rewrites to an existing vault.
    *
-   * Any edits the user made to the five starter files are lost. Other files
-   * in the templates folder are untouched.
+   * Any edits the user made to the starter files are lost. Other files in
+   * the templates folder are untouched.
    */
   async forceWriteStarter(): Promise<void> {
     const folderPath = normalizePath(this.folderPath);

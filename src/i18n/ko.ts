@@ -126,7 +126,7 @@ const ko: Record<string, string> = {
   "settings.restore-starter.button": "복원",
   "settings.restore-starter.notice": "누락된 starter 템플릿이 복원되었습니다.",
   "settings.update-starter.name": "기본 템플릿 업데이트",
-  "settings.update-starter.desc": "위 폴더의 5개 starter 템플릿을 플러그인의 최신 버전으로 덮어씁니다. 사용자가 편집한 내용은 모두 사라집니다. 본인이 만든 다른 템플릿은 영향받지 않습니다.",
+  "settings.update-starter.desc": "위 폴더의 starter 템플릿들을 플러그인의 최신 버전으로 덮어씁니다. 사용자가 편집한 내용은 모두 사라집니다. 본인이 만든 다른 템플릿은 영향받지 않습니다.",
   "settings.update-starter.button": "업데이트",
   "settings.update-starter.notice": "starter 템플릿이 최신 버전으로 업데이트되었습니다.",
 

@@ -27,15 +27,20 @@ export function buildPrompt(ctx: TransformContext): PromptInput {
 
   userSections.push(label("RAW MEMO"), ctx.rawBody);
   userSections.push(label("TASK"), ctx.template.instruction);
-  userSections.push(
-    label("OUTPUT RULES"),
-    [
-      "Reply with the transformed note in Markdown only.",
-      "Do not wrap your reply in code fences.",
-      "Do not echo the raw memo back.",
-      "Match the language of the raw memo.",
-    ].join("\n")
-  );
+
+  // The output contract below implements the fidelity policy in docs/prd.md.
+  // Preservation-first: templates define structure, this defines what may
+  // never be lost. Wording changes here change every transform — treat as API.
+  const rules = [
+    "Reply with the transformed note in Markdown only.",
+    "Do not wrap your reply in code fences.",
+    "Write the entire output, including section headings, in the language of the raw memo.",
+    "Completeness: every distinct fact, statement, name, number, date, and decision in the raw memo must appear in the output. Restructure and deduplicate freely, but never drop content. When unsure whether something matters, include it.",
+    "Output length scales with input length. Do not compress for brevity unless the TASK explicitly asks for summarization.",
+    "Do not reproduce the raw memo verbatim as one block; reorganize it into the requested structure.",
+    "Do not invent facts. Inference belongs only in sections the TASK explicitly labels as interpretation.",
+  ];
+  userSections.push(label("OUTPUT RULES"), rules.join("\n"));
 
   return { system, user: userSections.join("\n\n") };
 }
