@@ -71,6 +71,10 @@ export interface TransformContext {
   defaultContext: string;
   perNoteContext: string | null;
   rawBody: string;
+  /** Contents of [!stt]-linked transcript files; null when the memo has none. */
+  transcript: string | null;
+  /** git log output for [!git] repo specs; null when the memo has none. */
+  gitLog: string | null;
   template: Template;
   vaultRoot: string;
 }

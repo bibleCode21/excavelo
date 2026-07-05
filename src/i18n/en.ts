@@ -156,6 +156,15 @@ const en: Record<string, string> = {
   "notice.mobile-fallback": "ExcaVelo: Claude Code CLI is desktop-only — using Anthropic API key on mobile.",
   "notice.error-generic": "ExcaVelo: {detail}",
   "transform.note-empty": "Note is empty.",
+  "transform.stt-no-link": "The [!stt] callout has no [[file]] link.",
+  "transform.stt-not-found": "STT file '{name}' not found. Check the [[link]] in the [!stt] callout.",
+
+  // Git history input
+  "git.desktop-only": "[!git] needs to run the git binary and is desktop-only.",
+  "git.no-path": "The [!git] callout has no repository path.",
+  "git.path-missing": "Repository path '{path}' does not exist. Check the [!git] callout.",
+  "git.failed": "git log failed for '{path}': {error}",
+  "git.no-branches": "No branches match '{glob}' in '{path}'. Check the [!git] callout.",
 };
 
 export default en;

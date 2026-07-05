@@ -155,6 +155,15 @@ const ko: Record<string, string> = {
   "notice.mobile-fallback": "ExcaVelo: Claude Code CLI 는 데스크톱 전용 — 모바일에서는 Anthropic API 키로 대체합니다.",
   "notice.error-generic": "ExcaVelo: {detail}",
   "transform.note-empty": "노트가 비어 있습니다.",
+  "transform.stt-no-link": "[!stt] 콜아웃에 [[파일]] 링크가 없습니다.",
+  "transform.stt-not-found": "STT 파일 '{name}'을(를) 찾을 수 없습니다. [!stt] 콜아웃의 [[링크]]를 확인하세요.",
+
+  // Git history input
+  "git.desktop-only": "[!git]은 git 실행이 필요해서 데스크톱에서만 동작합니다.",
+  "git.no-path": "[!git] 콜아웃에 저장소 경로가 없습니다.",
+  "git.path-missing": "저장소 경로 '{path}'이(가) 존재하지 않습니다. [!git] 콜아웃을 확인하세요.",
+  "git.failed": "'{path}'에서 git log 실행에 실패했습니다: {error}",
+  "git.no-branches": "'{path}'에서 '{glob}'과 일치하는 브랜치가 없습니다. [!git] 콜아웃을 확인하세요.",
 };
 
 export default ko;

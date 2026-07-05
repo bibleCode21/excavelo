@@ -4,6 +4,7 @@ import type { LlmProvider } from "../llm/llm";
 import type { LlmResponse, Template, TransformContext } from "../types";
 import { extractContext, getNoteText } from "./context";
 import { buildPrompt } from "./prompt";
+import { loadGitLog } from "./git-log";
 import { t } from "../i18n";
 
 /**
@@ -23,11 +24,22 @@ export class TransformRunner {
       throw new Error(t("transform.note-empty"));
     }
 
-    const { perNoteContext, rawBody } = extractContext(noteText);
+    const { perNoteContext, rawBody, sttLinks, hasSttCallout, gitSpecs, hasGitCallout } =
+      extractContext(noteText);
+    if (hasSttCallout && sttLinks.length === 0) {
+      throw new Error(t("transform.stt-no-link"));
+    }
+    if (hasGitCallout && gitSpecs.length === 0) {
+      throw new Error(t("git.no-path"));
+    }
+    const transcript = await this.loadTranscript(sttLinks);
+    const gitLog = await loadGitLog(gitSpecs, rawBody);
     const transformContext: TransformContext = {
       defaultContext: this.plugin.settings.defaultContext,
       perNoteContext,
       rawBody,
+      transcript,
+      gitLog,
       template,
       vaultRoot: this.plugin.vaultRoot(),
     };
@@ -48,6 +60,27 @@ export class TransformRunner {
     } finally {
       this.plugin.setStatusBusy(false);
     }
+  }
+
+  /**
+   * Reads the [!stt]-linked transcript files. A link that does not resolve is
+   * an error, not a silent memo-only transform — the user attached it because
+   * the memo alone is not the full record.
+   */
+  private async loadTranscript(links: string[]): Promise<string | null> {
+    if (links.length === 0) return null;
+    const app = this.plugin.app;
+    const sourcePath = app.workspace.getActiveFile()?.path ?? "";
+    const parts: string[] = [];
+    for (const link of links) {
+      const file = app.metadataCache.getFirstLinkpathDest(link, sourcePath);
+      if (!file) {
+        throw new Error(t("transform.stt-not-found", { name: link }));
+      }
+      const content = (await app.vault.read(file)).trim();
+      parts.push(links.length > 1 ? `--- ${file.basename} ---\n${content}` : content);
+    }
+    return parts.join("\n\n");
   }
 
   // TODO: regenerate(), retry-on-error, streaming variant.

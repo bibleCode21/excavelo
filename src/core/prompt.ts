@@ -26,6 +26,15 @@ export function buildPrompt(ctx: TransformContext): PromptInput {
   }
 
   userSections.push(label("RAW MEMO"), ctx.rawBody);
+
+  if (ctx.transcript && ctx.transcript.trim()) {
+    userSections.push(label("MEETING TRANSCRIPT (STT)"), ctx.transcript.trim());
+  }
+
+  if (ctx.gitLog && ctx.gitLog.trim()) {
+    userSections.push(label("GIT LOG"), ctx.gitLog.trim());
+  }
+
   userSections.push(label("TASK"), ctx.template.instruction);
 
   // The output contract below implements the fidelity policy in docs/prd.md.
@@ -40,6 +49,22 @@ export function buildPrompt(ctx: TransformContext): PromptInput {
     "Do not reproduce the raw memo verbatim as one block; reorganize it into the requested structure.",
     "Do not invent facts. Inference belongs only in sections the TASK explicitly labels as interpretation.",
   ];
+  if (ctx.transcript && ctx.transcript.trim()) {
+    rules.push(
+      "The RAW MEMO is the author's authoritative record. The MEETING TRANSCRIPT is automatic speech-to-text of the same meeting: it may contain recognition errors, wrong speaker attribution, and filler talk.",
+      "Use the transcript to recover details, figures, names, and decisions the memo omits. When the memo and the transcript conflict, the memo wins.",
+      "Ignore transcript passages that are small talk or clearly off-topic.",
+      "If a transcript passage is too garbled to interpret reliably, do not guess: mark the affected item with a note meaning 'STT damaged segment' in the output language (in Korean: '(STT 손상 구간)')."
+    );
+  }
+  if (ctx.gitLog && ctx.gitLog.trim()) {
+    rules.push(
+      "The GIT LOG is the factual record of code changes in the named repositories. Treat commit messages and diffstats as ground truth for what was done; do not invent work that is not in the log or the memo.",
+      "Group and describe the work by intent (feature, fix, refactor), not commit-by-commit; merge related commits into one line of substance.",
+      "When the TASK selects work from the GIT LOG using items in the raw memo (such as an issue list), those memo items are selection criteria, not content to preserve: an item with no matching work in the log produces no entry, and must never be given an invented date or description. For such items this overrides the completeness rule above.",
+      "Match memo items to commits by what the commits actually say. Do not reinterpret or reframe a commit to force a match; when a commit matches no item as written, leave it out."
+    );
+  }
   userSections.push(label("OUTPUT RULES"), rules.join("\n"));
 
   return { system, user: userSections.join("\n\n") };
