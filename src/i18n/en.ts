@@ -64,20 +64,39 @@ const en: Record<string, string> = {
   "settings.cli.binary.name": "Binary path",
   "settings.cli.binary.desc": "Leave empty to auto-detect from PATH.",
   "settings.cli.binary.placeholder": "e.g. /usr/local/bin/claude",
+  "settings.cli.model.name": "Model",
+  "settings.cli.model.desc":
+    "Aliases always map to the latest model of each tier. " +
+    "Claude Code has no model-list API, so specific ids go under Custom. " +
+    "Templates can override via a 'model' frontmatter key.",
+  "settings.cli.model.option.sonnet": "sonnet (recommended)",
+  "settings.cli.model.option.opus": "opus",
+  "settings.cli.model.option.haiku": "haiku",
+  "settings.cli.model.option.default": "Claude Code default",
+  "settings.cli.model.option.custom": "Custom model id...",
+  "settings.cli.custom-model.name": "Custom model id",
+  "settings.cli.custom-model.desc": "Full model id, e.g. claude-sonnet-4-6.",
   "settings.cli.permission.name": "Permission mode",
   "settings.cli.permission.desc": "bypassPermissions skips tool-use prompts; safe for pure text generation.",
   "settings.cli.timeout.name": "Timeout (seconds)",
-  "settings.cli.timeout.desc": "Maximum time to wait for a Claude Code response.",
+  "settings.cli.timeout.desc":
+    "How long to wait for Claude Code before giving up. Raise this for long inputs — a 40-minute transcript can take several minutes, especially on opus.",
 
   "settings.anthropic.key.name": "API key",
   "settings.anthropic.key.desc": "From console.anthropic.com. Stored locally in data.json.",
-  "settings.anthropic.model.name": "Model",
+
+  "settings.api-model.name": "Model",
+  "settings.api-model.desc-text": "Type a model id, or load the endpoint's list to pick from.",
+  "settings.api-model.desc-loaded": "{count} models loaded from the endpoint.",
+  "settings.api-model.load": "Load model list",
+  "settings.api-model.reload": "Reload list",
+  "settings.api-model.loading": "Loading...",
+  "settings.api-model.failed": "Could not load models. {error}",
 
   "settings.openai.baseurl.name": "Base URL",
   "settings.openai.baseurl.desc": "e.g. https://api.openai.com/v1, http://localhost:11434/v1 (Ollama), https://api.groq.com/openai/v1",
   "settings.openai.key.name": "API key",
   "settings.openai.key.desc": "Leave empty for local-only providers like Ollama.",
-  "settings.openai.model.name": "Model name",
 
   "settings.test-connection.button": "Test connection",
   "settings.test-connection.testing": "Testing...",

@@ -98,7 +98,16 @@ export default class ExcaveloPlugin extends Plugin {
   }
 
   async loadSettings(): Promise<void> {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    // Merge nested sections individually: a data.json written before a new
+    // per-provider field existed would otherwise blank out its default.
+    const data = ((await this.loadData()) ?? {}) as Partial<PluginSettings>;
+    this.settings = {
+      ...DEFAULT_SETTINGS,
+      ...data,
+      claudeCodeCli: { ...DEFAULT_SETTINGS.claudeCodeCli, ...(data.claudeCodeCli ?? {}) },
+      anthropicApi: { ...DEFAULT_SETTINGS.anthropicApi, ...(data.anthropicApi ?? {}) },
+      openAiCompat: { ...DEFAULT_SETTINGS.openAiCompat, ...(data.openAiCompat ?? {}) },
+    };
   }
 
   async saveSettings(): Promise<void> {

@@ -37,7 +37,10 @@ export class TransformRunner {
 
     this.plugin.setStatusBusy(true);
     try {
-      const response = await provider.generate(promptInput);
+      const response = await provider.generate(
+        promptInput,
+        template.model ? { model: template.model } : undefined
+      );
       return { response, transformContext };
     } catch (err) {
       new Notice(t("notice.error-generic", { detail: (err as Error).message }));

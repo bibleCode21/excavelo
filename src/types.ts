@@ -8,6 +8,8 @@ export type AuthMethod = "claude-code-cli" | "anthropic-api" | "openai-compat";
 
 export interface ClaudeCodeCliSettings {
   binaryPath: string;
+  /** Alias (sonnet, opus, haiku) or full model id. Empty = Claude Code's own default. */
+  model: string;
   permissionMode: "default" | "bypassPermissions";
   workingDirectory: "vault-root" | "custom";
   customWorkingDirectory: string;
@@ -46,6 +48,8 @@ export interface Template {
   icon?: string;
   hotkey?: string | null;
   provider?: AuthMethod | null;
+  /** Per-template model override; null defers to the provider's setting. */
+  model?: string | null;
   output?: "append" | "new-file" | "preview-first";
   outputFolder?: string;
   outputFilename?: string;

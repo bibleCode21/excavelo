@@ -64,20 +64,38 @@ const ko: Record<string, string> = {
   "settings.cli.binary.name": "바이너리 경로",
   "settings.cli.binary.desc": "비워두면 PATH 에서 자동 감지합니다.",
   "settings.cli.binary.placeholder": "예: /usr/local/bin/claude",
+  "settings.cli.model.name": "모델",
+  "settings.cli.model.desc":
+    "별칭은 항상 각 티어의 최신 모델을 가리킵니다. " +
+    "Claude Code 에는 모델 목록 API 가 없어 특정 id 는 직접 입력으로 지정합니다. " +
+    "템플릿 frontmatter 의 'model' 키로 템플릿별 재정의가 가능합니다.",
+  "settings.cli.model.option.sonnet": "sonnet (권장)",
+  "settings.cli.model.option.opus": "opus",
+  "settings.cli.model.option.haiku": "haiku",
+  "settings.cli.model.option.default": "Claude Code 기본값",
+  "settings.cli.model.option.custom": "모델 id 직접 입력...",
+  "settings.cli.custom-model.name": "모델 id 직접 입력",
+  "settings.cli.custom-model.desc": "전체 모델 id 를 입력하세요. 예: claude-sonnet-4-6",
   "settings.cli.permission.name": "권한 모드",
   "settings.cli.permission.desc": "bypassPermissions 는 도구 사용 확인 프롬프트를 건너뜁니다. 순수 텍스트 생성에는 안전합니다.",
   "settings.cli.timeout.name": "타임아웃 (초)",
-  "settings.cli.timeout.desc": "Claude Code 응답을 기다리는 최대 시간.",
+  "settings.cli.timeout.desc": "Claude Code 응답을 기다리는 최대 시간. 긴 입력은 몇 분씩 걸릴 수 있으니(특히 opus) 넉넉히 잡으세요.",
 
   "settings.anthropic.key.name": "API 키",
   "settings.anthropic.key.desc": "console.anthropic.com 에서 발급. data.json 에 로컬 저장됩니다.",
-  "settings.anthropic.model.name": "모델",
+
+  "settings.api-model.name": "모델",
+  "settings.api-model.desc-text": "모델 id 를 직접 입력하거나, 엔드포인트의 목록을 불러와 선택하세요.",
+  "settings.api-model.desc-loaded": "엔드포인트에서 모델 {count}개를 불러왔습니다.",
+  "settings.api-model.load": "모델 목록 불러오기",
+  "settings.api-model.reload": "목록 새로고침",
+  "settings.api-model.loading": "불러오는 중...",
+  "settings.api-model.failed": "모델 목록을 불러오지 못했습니다. {error}",
 
   "settings.openai.baseurl.name": "Base URL",
   "settings.openai.baseurl.desc": "예: https://api.openai.com/v1, http://localhost:11434/v1 (Ollama), https://api.groq.com/openai/v1",
   "settings.openai.key.name": "API 키",
   "settings.openai.key.desc": "Ollama 같은 로컬 전용 공급자는 비워두면 됩니다.",
-  "settings.openai.model.name": "모델 이름",
 
   "settings.test-connection.button": "연결 테스트",
   "settings.test-connection.testing": "테스트 중...",

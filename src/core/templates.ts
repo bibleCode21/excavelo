@@ -115,6 +115,7 @@ export class TemplateRegistry {
       icon: frontmatter.icon ? String(frontmatter.icon) : undefined,
       hotkey: (frontmatter.hotkey as string | null | undefined) ?? null,
       provider: (frontmatter.provider as never) ?? null,
+      model: frontmatter.model ? String(frontmatter.model) : null,
       output: (frontmatter.output as never) ?? "preview-first",
       outputFolder: frontmatter.output_folder
         ? String(frontmatter.output_folder)

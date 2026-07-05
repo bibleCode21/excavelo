@@ -1,10 +1,19 @@
 import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import type ExcaveloPlugin from "../main";
 import type { AuthMethod } from "../types";
+import { AnthropicProvider } from "../llm/anthropic";
+import { OpenAiCompatProvider } from "../llm/openai-compat";
 import { t } from "../i18n";
+
+const CLI_MODEL_ALIASES = ["sonnet", "opus", "haiku"];
+const CLI_MODEL_CUSTOM = "__custom__";
 
 export class ExcaveloSettingTab extends PluginSettingTab {
   plugin: ExcaveloPlugin;
+  /** Model lists fetched on demand via "Load model list"; session-only cache. */
+  private modelLists: Partial<Record<"anthropic" | "openai", string[]>> = {};
+  /** Keeps the CLI model row in custom mode while the id is being typed. */
+  private cliModelCustom = false;
 
   constructor(app: App, plugin: ExcaveloPlugin) {
     super(app, plugin);
@@ -66,6 +75,46 @@ export class ExcaveloSettingTab extends PluginSettingTab {
           })
       );
 
+    const currentModel = this.plugin.settings.claudeCodeCli.model;
+    const isCustom =
+      this.cliModelCustom || (currentModel !== "" && !CLI_MODEL_ALIASES.includes(currentModel));
+
+    new Setting(parent)
+      .setName(t("settings.cli.model.name"))
+      .setDesc(t("settings.cli.model.desc"))
+      .addDropdown((dd) =>
+        dd
+          .addOption("sonnet", t("settings.cli.model.option.sonnet"))
+          .addOption("opus", t("settings.cli.model.option.opus"))
+          .addOption("haiku", t("settings.cli.model.option.haiku"))
+          .addOption("", t("settings.cli.model.option.default"))
+          .addOption(CLI_MODEL_CUSTOM, t("settings.cli.model.option.custom"))
+          .setValue(isCustom ? CLI_MODEL_CUSTOM : currentModel)
+          .onChange(async (v) => {
+            this.cliModelCustom = v === CLI_MODEL_CUSTOM;
+            if (!this.cliModelCustom) {
+              this.plugin.settings.claudeCodeCli.model = v;
+              await this.plugin.saveSettings();
+            }
+            this.display();
+          })
+      );
+
+    if (isCustom) {
+      new Setting(parent)
+        .setName(t("settings.cli.custom-model.name"))
+        .setDesc(t("settings.cli.custom-model.desc"))
+        .addText((tt) =>
+          tt
+            .setPlaceholder("claude-sonnet-4-6")
+            .setValue(CLI_MODEL_ALIASES.includes(currentModel) ? "" : currentModel)
+            .onChange(async (v) => {
+              this.plugin.settings.claudeCodeCli.model = v.trim();
+              await this.plugin.saveSettings();
+            })
+        );
+    }
+
     new Setting(parent)
       .setName(t("settings.cli.permission.name"))
       .setDesc(t("settings.cli.permission.desc"))
@@ -83,17 +132,21 @@ export class ExcaveloSettingTab extends PluginSettingTab {
     new Setting(parent)
       .setName(t("settings.cli.timeout.name"))
       .setDesc(t("settings.cli.timeout.desc"))
-      .addText((tt) =>
-        tt
+      .addText((tt) => {
+        tt.inputEl.type = "number";
+        tt.inputEl.min = "1";
+        tt.setPlaceholder("720")
           .setValue(String(this.plugin.settings.claudeCodeCli.timeoutSeconds))
           .onChange(async (v) => {
-            const n = Number(v);
+            const n = Math.floor(Number(v));
+            // Ignore empty/invalid input rather than clobbering with NaN; the
+            // provider also falls back to the default when the value is 0.
             if (Number.isFinite(n) && n > 0) {
-              this.plugin.settings.claudeCodeCli.timeoutSeconds = Math.round(n);
+              this.plugin.settings.claudeCodeCli.timeoutSeconds = n;
               await this.plugin.saveSettings();
             }
-          })
-      );
+          });
+      });
 
     this.renderTestConnection(parent, "claude-code-cli");
   }
@@ -112,16 +165,15 @@ export class ExcaveloSettingTab extends PluginSettingTab {
           });
       });
 
-    new Setting(parent)
-      .setName(t("settings.anthropic.model.name"))
-      .addText((tt) =>
-        tt
-          .setValue(this.plugin.settings.anthropicApi.model)
-          .onChange(async (v) => {
-            this.plugin.settings.anthropicApi.model = v;
-            await this.plugin.saveSettings();
-          })
-      );
+    this.renderApiModelSetting(parent, {
+      cacheKey: "anthropic",
+      getValue: () => this.plugin.settings.anthropicApi.model,
+      setValue: async (v) => {
+        this.plugin.settings.anthropicApi.model = v;
+        await this.plugin.saveSettings();
+      },
+      fetchModels: () => new AnthropicProvider(this.plugin.settings.anthropicApi).listModels(),
+    });
 
     this.renderTestConnection(parent, "anthropic-api");
   }
@@ -150,18 +202,73 @@ export class ExcaveloSettingTab extends PluginSettingTab {
         });
       });
 
-    new Setting(parent)
-      .setName(t("settings.openai.model.name"))
-      .addText((tt) =>
-        tt
-          .setValue(this.plugin.settings.openAiCompat.model)
-          .onChange(async (v) => {
-            this.plugin.settings.openAiCompat.model = v;
-            await this.plugin.saveSettings();
-          })
-      );
+    this.renderApiModelSetting(parent, {
+      cacheKey: "openai",
+      getValue: () => this.plugin.settings.openAiCompat.model,
+      setValue: async (v) => {
+        this.plugin.settings.openAiCompat.model = v;
+        await this.plugin.saveSettings();
+      },
+      fetchModels: () => new OpenAiCompatProvider(this.plugin.settings.openAiCompat).listModels(),
+    });
 
     this.renderTestConnection(parent, "openai-compat");
+  }
+
+  /**
+   * Model picker for the API providers. Starts as a free-text field; "Load
+   * model list" fetches the endpoint's catalog (explicit user action — hard
+   * rule 2) and re-renders the row as a dropdown for this settings session.
+   */
+  private renderApiModelSetting(
+    parent: HTMLElement,
+    opts: {
+      cacheKey: "anthropic" | "openai";
+      getValue: () => string;
+      setValue: (v: string) => Promise<void>;
+      fetchModels: () => Promise<string[]>;
+    }
+  ): void {
+    const models = this.modelLists[opts.cacheKey];
+    const setting = new Setting(parent).setName(t("settings.api-model.name"));
+
+    if (models) {
+      setting.setDesc(t("settings.api-model.desc-loaded", { count: models.length }));
+      setting.addDropdown((dd) => {
+        const current = opts.getValue();
+        if (current && !models.includes(current)) {
+          dd.addOption(current, `${current} (current)`);
+        }
+        for (const m of models) dd.addOption(m, m);
+        dd.setValue(current || models[0]).onChange(async (v) => {
+          await opts.setValue(v);
+        });
+      });
+    } else {
+      setting.setDesc(t("settings.api-model.desc-text"));
+      setting.addText((tt) =>
+        tt.setValue(opts.getValue()).onChange(async (v) => {
+          await opts.setValue(v.trim());
+        })
+      );
+    }
+
+    setting.addButton((btn) =>
+      btn
+        .setButtonText(models ? t("settings.api-model.reload") : t("settings.api-model.load"))
+        .onClick(async () => {
+          btn.setDisabled(true).setButtonText(t("settings.api-model.loading"));
+          try {
+            this.modelLists[opts.cacheKey] = await opts.fetchModels();
+            this.display();
+          } catch (err) {
+            new Notice(t("settings.api-model.failed", { error: (err as Error).message }));
+            btn
+              .setDisabled(false)
+              .setButtonText(models ? t("settings.api-model.reload") : t("settings.api-model.load"));
+          }
+        })
+    );
   }
 
   private renderTestConnection(parent: HTMLElement, method: AuthMethod): void {

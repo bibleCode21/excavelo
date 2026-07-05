@@ -4,10 +4,11 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   authMethod: "claude-code-cli",
   claudeCodeCli: {
     binaryPath: "",
+    model: "sonnet",
     permissionMode: "bypassPermissions",
     workingDirectory: "vault-root",
     customWorkingDirectory: "",
-    timeoutSeconds: 120,
+    timeoutSeconds: 720,
   },
   anthropicApi: {
     apiKey: "",
