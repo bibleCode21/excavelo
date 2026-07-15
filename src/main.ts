@@ -1,4 +1,4 @@
-import { Editor, MarkdownView, Menu, Notice, Platform, Plugin, TFile, TFolder, normalizePath } from "obsidian";
+import { Editor, FileSystemAdapter, MarkdownView, Menu, Notice, Platform, Plugin, TFile, TFolder, normalizePath } from "obsidian";
 import { DEFAULT_SETTINGS } from "./settings/settings";
 import { ExcaveloSettingTab } from "./settings/settings-tab";
 import { ChooserModal } from "./ui/chooser-modal";
@@ -116,9 +116,10 @@ export default class ExcaveloPlugin extends Plugin {
   }
 
   vaultRoot(): string {
-    // Obsidian's adapter knows the basePath on desktop; mobile returns "".
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (this.app.vault.adapter as any).basePath ?? "";
+    // Only FileSystemAdapter (desktop) exposes a real filesystem base path.
+    return this.app.vault.adapter instanceof FileSystemAdapter
+      ? this.app.vault.adapter.getBasePath()
+      : "";
   }
 
   setStatusBusy(busy: boolean): void {
@@ -173,14 +174,15 @@ export default class ExcaveloPlugin extends Plugin {
       return;
     }
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const electron = (window as any).require?.("electron") as { shell?: { openPath: (p: string) => Promise<string> } } | undefined;
+      const nodeRequire = (window as unknown as { require?: (module: string) => unknown }).require;
+      const electron = nodeRequire?.("electron") as
+        | { shell?: { openPath: (p: string) => Promise<string> } }
+        | undefined;
       if (!electron?.shell) {
         new Notice(t("notice.templates-folder", { path: folderPath }));
         return;
       }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const pathMod = (window as any).require?.("path") as { join: (...parts: string[]) => string };
+      const pathMod = nodeRequire?.("path") as { join: (...parts: string[]) => string };
       const absolute = pathMod.join(vaultRoot, folderPath);
       const failure = await electron.shell.openPath(absolute);
       if (failure) new Notice(t("notice.open-folder-failed", { detail: failure }));
@@ -191,8 +193,10 @@ export default class ExcaveloPlugin extends Plugin {
   }
 
   openOwnSettings(): void {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const setting = (this.app as any).setting;
+    // Undocumented internal API: no public type for the settings modal.
+    const setting = (this.app as unknown as {
+      setting?: { open: () => void; openTabById: (id: string) => void };
+    }).setting;
     if (setting?.open && setting?.openTabById) {
       setting.open();
       setting.openTabById("excavelo");
@@ -387,7 +391,7 @@ export default class ExcaveloPlugin extends Plugin {
   private slugify(basename: string): string {
     return basename
       .toLowerCase()
-      .replace(/[^a-z0-9\-]+/g, "-")
+      .replace(/[^a-z0-9-]+/g, "-")
       .replace(/^-+|-+$/g, "")
       .slice(0, 64) || "memo";
   }

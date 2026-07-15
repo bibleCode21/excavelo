@@ -90,13 +90,13 @@ export function branchCandidates(memoText: string): string[] {
 
 /** Lazy require: this module is bundled into main.js, which also loads on mobile. */
 function nodeApis() {
-  /* eslint-disable @typescript-eslint/no-var-requires */
+  /* eslint-disable @typescript-eslint/no-var-requires -- lazy require, not import: these builtins must not be evaluated on mobile, where they don't exist */
   return {
     cp: require("child_process") as typeof import("child_process"),
     fs: require("fs") as typeof import("fs"),
     os: require("os") as typeof import("os"),
   };
-  /* eslint-enable @typescript-eslint/no-var-requires */
+  /* eslint-enable @typescript-eslint/no-var-requires -- end of the lazy-require block above */
 }
 
 function gitCandidates(): string[] {

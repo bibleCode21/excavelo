@@ -27,14 +27,14 @@ const DEFAULT_TIMEOUT_SECONDS = 720;
  * a Platform.isMobile guard.
  */
 function nodeApis() {
-  /* eslint-disable @typescript-eslint/no-var-requires */
+  /* eslint-disable @typescript-eslint/no-var-requires -- lazy require, not import: these builtins must not be evaluated on mobile, where they don't exist */
   return {
     cp: require("child_process") as typeof import("child_process"),
     fs: require("fs") as typeof import("fs"),
     path: require("path") as typeof import("path"),
     os: require("os") as typeof import("os"),
   };
-  /* eslint-enable @typescript-eslint/no-var-requires */
+  /* eslint-enable @typescript-eslint/no-var-requires -- end of the lazy-require block above */
 }
 
 function isWindows(): boolean {

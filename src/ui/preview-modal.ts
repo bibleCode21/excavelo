@@ -1,4 +1,4 @@
-import { App, MarkdownRenderer, Modal, Setting, setTooltip } from "obsidian";
+import { App, Component, MarkdownRenderer, Modal, Setting, setTooltip } from "obsidian";
 import type ExcaveloPlugin from "../main";
 import type { LlmResponse, Template, TransformContext } from "../types";
 import { t } from "../i18n";
@@ -20,6 +20,9 @@ export interface PreviewActionContext {
  * Per-template `output` field determines which button is the highlighted default.
  */
 export class PreviewModal extends Modal {
+  /** Rendered-markdown lifecycle, scoped to this modal's open/close instead of the plugin's. */
+  private renderComponent = new Component();
+
   constructor(
     app: App,
     private plugin: ExcaveloPlugin,
@@ -34,6 +37,7 @@ export class PreviewModal extends Modal {
   }
 
   onOpen(): void {
+    this.renderComponent.load();
     const { contentEl } = this;
     contentEl.addClass("excavelo-preview-content");
     contentEl.createEl("h3", { text: t("preview.title", { template: this.template.name }) });
@@ -44,7 +48,7 @@ export class PreviewModal extends Modal {
       this.response.text,
       bodyEl,
       "",
-      this.plugin
+      this.renderComponent
     );
 
     new Setting(contentEl)
@@ -96,6 +100,7 @@ export class PreviewModal extends Modal {
   }
 
   onClose(): void {
+    this.renderComponent.unload();
     this.contentEl.empty();
   }
 

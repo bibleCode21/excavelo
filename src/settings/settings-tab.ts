@@ -25,7 +25,7 @@ export class ExcaveloSettingTab extends PluginSettingTab {
     containerEl.empty();
     containerEl.addClass("excavelo-settings");
 
-    containerEl.createEl("h2", { text: t("settings.title") });
+    new Setting(containerEl).setName(t("settings.title")).setHeading();
 
     new Setting(containerEl)
       .setName(t("settings.language.name"))
@@ -51,7 +51,7 @@ export class ExcaveloSettingTab extends PluginSettingTab {
   }
 
   private renderConnectionSection(parent: HTMLElement): void {
-    parent.createEl("h3", { text: t("settings.connection.header") });
+    new Setting(parent).setName(t("settings.connection.header")).setHeading();
 
     new Setting(parent)
       .setName(t("settings.auth-method.name"))
@@ -315,7 +315,7 @@ export class ExcaveloSettingTab extends PluginSettingTab {
   }
 
   private renderContextSection(parent: HTMLElement): void {
-    parent.createEl("h3", { text: t("settings.context.header") });
+    new Setting(parent).setName(t("settings.context.header")).setHeading();
 
     new Setting(parent)
       .setName(t("settings.default-context.name"))
@@ -330,7 +330,7 @@ export class ExcaveloSettingTab extends PluginSettingTab {
   }
 
   private renderTemplatesSection(parent: HTMLElement): void {
-    parent.createEl("h3", { text: t("settings.templates.header") });
+    new Setting(parent).setName(t("settings.templates.header")).setHeading();
 
     new Setting(parent)
       .setName(t("settings.templates-folder.name"))
@@ -376,7 +376,7 @@ export class ExcaveloSettingTab extends PluginSettingTab {
       .setName(t("settings.update-starter.name"))
       .setDesc(t("settings.update-starter.desc"))
       .addButton((b) =>
-        b.setButtonText(t("settings.update-starter.button")).setWarning().onClick(async () => {
+        b.setButtonText(t("settings.update-starter.button")).setDestructive().onClick(async () => {
           await this.plugin.templates.forceWriteStarter();
           new Notice(t("settings.update-starter.notice"));
         })
@@ -384,7 +384,7 @@ export class ExcaveloSettingTab extends PluginSettingTab {
   }
 
   private renderUiSection(parent: HTMLElement): void {
-    parent.createEl("h3", { text: t("settings.ui.header") });
+    new Setting(parent).setName(t("settings.ui.header")).setHeading();
 
     new Setting(parent)
       .setName(t("settings.status-bar.name"))
