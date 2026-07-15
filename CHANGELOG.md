@@ -5,6 +5,20 @@ All notable changes to ExcaVelo are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.2] - 2026-07-15
+
+### Fixed
+
+- **`minAppVersion` raised to 1.13.0**, which unblocks the community-plugin review. 1.4.1 adopted `ButtonComponent.setDestructive()` on the "Update starter templates" button; that API is `@since 1.13.0` while the manifest still declared 1.5.0, so the review rejected the release with `obsidianmd/no-unsupported-api`. It was the only API in the plugin newer than the declared minimum. Existing installs on Obsidian below 1.13.0 keep running 1.4.1 — `versions.json` still maps every prior release to 1.5.0 — they simply stop being offered updates.
+
+### Added
+
+- **`eslint-plugin-obsidianmd`'s `no-unsupported-api` rule now runs in `pnpm lint`**, which is what CI and the release workflow gate on. This is the rule Obsidian's own review runs, and its absence is why 1.4.1 shipped: local lint was green and nothing checked API versions against the manifest. Verified both ways — with `minAppVersion: 1.5.0` restored, `pnpm lint` now fails on exactly the line the review flagged. It needs type information, so the parser gained `project: "./tsconfig.json"`.
+
+### Notes
+
+- Only that one rule of the plugin is enabled. Its `recommended` set reports 65 further findings in this codebase (chiefly the declarative settings API — `getSettingDefinitions` — and sentence-case UI text); adopting them is separate work, not a release fix.
+
 ## [1.4.1] - 2026-07-15
 
 ### Fixed
