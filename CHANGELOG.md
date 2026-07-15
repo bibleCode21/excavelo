@@ -5,6 +5,12 @@ All notable changes to ExcaVelo are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-07-15
+
+### Fixed
+
+- Resolved findings from Obsidian's automated community-plugin review: `any`-typed casts replaced with proper type narrowing (`FileSystemAdapter`, `unknown`-scoped casts), settings-tab section headings now use `Setting().setHeading()` instead of raw `<h2>`/`<h3>` elements, and the preview modal's markdown renderer runs against a modal-scoped `Component` instead of the long-lived plugin instance (closes a real listener-lifecycle leak). No functional change.
+
 ## [1.4.0] - 2026-07-05
 
 ### Added
