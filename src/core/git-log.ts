@@ -18,16 +18,27 @@ import { t } from "../i18n";
  * Paths may contain spaces — every token that is not a known key belongs to
  * the path. Dates: ISO (passed through), `today`, or `<N>d` (N days ago).
  *
- * Branch selection needs no configuration: when the memo body contains
- * branch names (e.g. lines pasted from git output, `branch-name  subject`),
- * every pasted name that actually exists in a listed repository is looked up
- * and gets its own `--- branch: <name>` section, with commits already on the
- * default branch (origin/HEAD) subtracted so a section is that branch's own
- * work. Pasted branches are an explicit selection, so no date window is
- * applied unless the spec sets one. `branches:<glob>` instead scans every
- * matching branch (default window: last 7 days). A repository where neither
- * applies contributes a plain log of the checked-out branch (default window:
- * last 7 days).
+ * The source of truth is the repository's default branch, never a branch tip:
+ * work counts as done when it has landed there. Each entry on the base's
+ * first-parent history is one *landing*. A landing with two or more parents is
+ * a merge and expands to the commits it brought in; any other landing is
+ * itself the work (a direct commit, a squash-merge commit, a rebased commit).
+ * That is why no merge strategy needs detecting.
+ *
+ * Branch selection needs no configuration: when the memo body contains branch
+ * names (e.g. lines pasted from git output, `branch-name  subject`), the
+ * landings carrying those names are emitted. Pasted branches are an explicit
+ * selection, so no date window is applied unless the spec sets one.
+ * `branches:<glob>` selects the same way (default window: last 7 days). Name
+ * filtering only ever applies to landings that *have* a name — a squash,
+ * rebase, or direct landing has none and is always emitted, or it would be
+ * dropped for lacking what it cannot have. A selected branch whose work has
+ * not landed gets a `--- not yet on <base>` section instead, never counted as
+ * shipped. A repository with no selection contributes every landing in the
+ * window (default: last 7 days) and no not-yet-landed sections.
+ *
+ * See docs/specs/git-log-master-source.md — in particular why reachability is
+ * not a landed-predicate, and what degrades in a squash/rebase repository.
  */
 
 export interface GitSpec {
@@ -211,7 +222,8 @@ async function enumerateBranches(repoPath: string): Promise<BranchRef[]> {
 
 /**
  * The repo's default branch (origin/HEAD or a main/master fallback), if any.
- * Best-effort: without a base the branch logs just include shared history.
+ * This is what work has to land on to count as done; without it there is
+ * nothing to source from and the caller falls back to a plain HEAD log.
  */
 async function resolveBaseRef(repoPath: string): Promise<string | null> {
   try {
@@ -237,6 +249,94 @@ async function resolveBaseRef(repoPath: string): Promise<string | null> {
   return null;
 }
 
+/**
+ * One event that put work on the base. `branch` is set only for a merge whose
+ * subject names its source; every other landing has no branch name to carry.
+ */
+interface Landing {
+  hash: string;
+  parents: string[];
+  /** Committer date — the date --since/--until filter on, so always in window. */
+  date: string;
+  subject: string;
+  branch: string | null;
+}
+
+/**
+ * A merge landing's source branch, read off the merge subject. Returns null
+ * when no known format matches; the caller then shows the raw subject rather
+ * than a guessed name — less signal beats a wrong label.
+ */
+function parseMergeBranchName(subject: string): string | null {
+  const patterns = [
+    // `Merge branch 'x'`, with or without a trailing `into 'y'`.
+    /^Merge branch '([^']+)'/i,
+    // `Merge remote-tracking branch 'origin/x'` — the remote prefix is dropped.
+    /^Merge remote-tracking branch '(?:[^/']+\/)?([^']+)'/i,
+    // `Merge pull request #12 from org/x`.
+    /^Merge pull request #\d+ from [^/\s]+\/(\S+)/i,
+  ];
+  for (const re of patterns) {
+    const m = subject.match(re);
+    if (m?.[1]) return m[1];
+  }
+  return null;
+}
+
+/**
+ * Landings on the base's first-parent history, newest first. Deliberately
+ * uncapped: the cap belongs after selection (a selected branch's landing must
+ * survive even when it is not among the most recent), and the window plus the
+ * git timeout bound the walk. One line per commit, so the walk is cheap.
+ */
+async function enumerateLandings(
+  repoPath: string,
+  base: string,
+  since: string | null,
+  until: string | null
+): Promise<Landing[]> {
+  const result = await runGit([
+    "-C",
+    repoPath,
+    "log",
+    "--first-parent",
+    base,
+    ...(since ? [`--since=${since}`] : []),
+    ...(until ? [`--until=${until}`] : []),
+    "--date=short",
+    "--no-color",
+    "--pretty=format:%H\t%P\t%cd\t%s",
+  ]);
+  if (result.code !== 0) {
+    throw new Error(result.stderr.trim().split("\n")[0] ?? "git log --first-parent failed");
+  }
+  const out: Landing[] = [];
+  for (const line of result.stdout.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const [hash, parents, date, ...rest] = line.split("\t");
+    if (!hash) continue;
+    const parentList = parents ? parents.split(" ").filter(Boolean) : [];
+    const subject = rest.join("\t");
+    out.push({
+      hash,
+      parents: parentList,
+      date: date ?? "",
+      subject,
+      branch: parentList.length >= 2 ? parseMergeBranchName(subject) : null,
+    });
+  }
+  return out;
+}
+
+function landingHeader(landing: Landing): string {
+  if (landing.parents.length >= 2) {
+    return landing.branch
+      ? `--- landed ${landing.date} branch: ${landing.branch}`
+      : `--- landed ${landing.date} merge: ${landing.subject}`;
+  }
+  return `--- landed ${landing.date} direct`;
+}
+
 function logArgs(repoPath: string, since: string | null, until: string | null): string[] {
   return [
     "-C",
@@ -252,44 +352,90 @@ function logArgs(repoPath: string, since: string | null, until: string | null): 
   ];
 }
 
-/** One `--- branch:` section per given branch that has commits to show. */
-async function loadBranchLogs(
+/** Runs one rendering `git log`, mapping every failure onto the git.failed contract. */
+async function runLog(args: string[], spec: GitSpec): Promise<string> {
+  let result;
+  try {
+    result = await runGit(args);
+  } catch (e) {
+    throw new Error(t("git.failed", { path: spec.path, error: (e as Error).message }));
+  }
+  if (result.code !== 0) {
+    const detail = result.stderr.trim().split("\n")[0] ?? "";
+    throw new Error(t("git.failed", { path: spec.path, error: detail }));
+  }
+  return result.stdout.trim();
+}
+
+/** One `--- landed` section per landing that has commits to show. */
+async function loadLandingSections(
   repoPath: string,
   spec: GitSpec,
-  branches: BranchRef[],
-  since: string | null
-): Promise<string> {
-  const base = await resolveBaseRef(repoPath);
+  landings: Landing[]
+): Promise<string[]> {
   const sections: string[] = [];
-  for (const branch of branches.slice(0, MAX_BRANCHES)) {
-    // base..branch: only the branch's own commits, not shared history. A
-    // branch cut from another feature branch still inherits that branch's
-    // commits — the work-log template tells the LLM how to attribute those.
-    const args = [
-      ...logArgs(repoPath, since, spec.until),
-      branch.ref,
-      ...(base && base !== branch.ref ? ["--not", base] : []),
-    ];
-    let result;
-    try {
-      result = await runGit(args);
-    } catch (e) {
-      throw new Error(t("git.failed", { path: spec.path, error: (e as Error).message }));
-    }
-    if (result.code !== 0) {
-      const detail = result.stderr.trim().split("\n")[0] ?? "";
-      throw new Error(t("git.failed", { path: spec.path, error: detail }));
-    }
-    const body = result.stdout.trim();
+  for (const landing of landings.slice(0, MAX_BRANCHES)) {
+    // A merge's own commits, from every non-first parent: identical to
+    // M^1..M^2 for an ordinary two-parent merge, and still correct for an
+    // octopus merge, where M^1..M^2 would silently drop the third parent on.
+    // No date window inside a landing — the landing is already in the window
+    // and its commits may well predate it, which is the point.
+    const args =
+      landing.parents.length >= 2
+        ? [...logArgs(repoPath, null, null), `${landing.hash}^@`, "--not", `${landing.hash}^1`]
+        : [...logArgs(repoPath, null, null), "--no-walk", landing.hash];
+    const body = await runLog(args, spec);
     if (!body) continue;
-    sections.push(`--- branch: ${branch.display}\n${body}`);
+    sections.push(`${landingHeader(landing)}\n${body}`);
   }
-  if (branches.length > MAX_BRANCHES) {
+  if (landings.length > MAX_BRANCHES) {
     sections.push(
-      `(only the ${MAX_BRANCHES} most recently updated of ${branches.length} matching branches were scanned)`
+      `(only the ${MAX_BRANCHES} most recent of ${landings.length} landings were rendered)`
     );
   }
-  return sections.join("\n\n") || "(no matching branch commits)";
+  return sections;
+}
+
+/**
+ * One `--- not yet on <base>` section per selected branch whose work has not
+ * landed. This is the old `--not <base>` query — the branch's own commits,
+ * not shared history — narrowed by --cherry-pick, which also drops commits
+ * whose patch landed under a different hash (rebase, cherry-pick).
+ *
+ * It cannot see through a squash: N commits' patches never equal one squashed
+ * patch, so a squash-landed branch still looks unlanded here. `landedNames`
+ * catches that only when the squash subject named the branch, which GitHub and
+ * GitLab do not do by default. The residual is real and closed at the prompt
+ * layer (a landed section wins) — see the work contract.
+ */
+async function loadNotLandedSections(
+  repoPath: string,
+  spec: GitSpec,
+  base: string,
+  branches: BranchRef[],
+  since: string | null,
+  landedNames: Set<string>
+): Promise<string[]> {
+  const sections: string[] = [];
+  const considered = branches.filter((b) => !landedNames.has(b.display.toLowerCase()));
+  for (const branch of considered.slice(0, MAX_BRANCHES)) {
+    if (branch.ref === base) continue;
+    const args = [
+      ...logArgs(repoPath, since, spec.until),
+      `${base}...${branch.ref}`,
+      "--right-only",
+      "--cherry-pick",
+    ];
+    const body = await runLog(args, spec);
+    if (!body) continue;
+    sections.push(`--- not yet on ${base} branch: ${branch.display}\n${body}`);
+  }
+  if (considered.length > MAX_BRANCHES) {
+    sections.push(
+      `(only the ${MAX_BRANCHES} most recently updated of ${considered.length} unlanded branches were scanned)`
+    );
+  }
+  return sections;
 }
 
 function windowLabel(since: string | null, until: string | null): string {
@@ -304,8 +450,12 @@ function windowLabel(since: string | null, until: string | null): string {
  * A path that is missing or not a git repository is an error, not a silent
  * memo-only transform.
  *
+ * Work is sourced from what landed on each repository's default branch;
+ * commits that only exist on an unlanded branch are labelled as such and
+ * never reported as shipped.
+ *
  * `memoText` (the raw memo body) drives automatic branch selection: branch
- * names pasted into the memo are looked up in each repository.
+ * names pasted into the memo select the landings that carry them.
  */
 export async function loadGitLog(specs: string[], memoText = ""): Promise<string | null> {
   if (specs.length === 0) return null;
@@ -325,61 +475,82 @@ export async function loadGitLog(specs: string[], memoText = ""): Promise<string
       throw new Error(t("git.path-missing", { path: spec.path }));
     }
 
-    if (spec.branches) {
-      // Explicit glob: scan every matching branch within the window.
-      let all: BranchRef[];
-      try {
-        all = await enumerateBranches(repoPath);
-      } catch (e) {
-        throw new Error(t("git.failed", { path: spec.path, error: (e as Error).message }));
-      }
-      const regex = globToRegExp(spec.branches);
-      const matched = all.filter((b) => regex.test(b.display) || regex.test(b.ref));
-      if (matched.length === 0) {
-        throw new Error(t("git.no-branches", { glob: spec.branches, path: spec.path }));
-      }
+    const base = await resolveBaseRef(repoPath);
+    if (!base) {
+      // Nothing to source from — fall back to a plain log of what is checked
+      // out rather than reporting nothing.
       const since = spec.since ?? DEFAULT_SINCE;
-      const body = await loadBranchLogs(repoPath, spec, matched, since);
-      const header = `repository: ${spec.path} (${windowLabel(since, spec.until)}, branches ${spec.branches})`;
-      parts.push(`${header}\n${body}`);
+      const body = await runLog(logArgs(repoPath, since, spec.until), spec);
+      const header = `repository: ${spec.path} (${windowLabel(since, spec.until)})`;
+      parts.push(`${header}\n${body || "(no commits in this window)"}`);
       continue;
     }
 
-    if (candidates.length > 0) {
-      // Branch names pasted into the memo: use the ones this repo has. An
-      // explicit selection, so no default date window.
-      let all: BranchRef[];
-      try {
-        all = await enumerateBranches(repoPath);
-      } catch (e) {
-        throw new Error(t("git.failed", { path: spec.path, error: (e as Error).message }));
-      }
-      const wanted = new Set(candidates.map((c) => c.toLowerCase()));
-      const matched = all.filter(
-        (b) => wanted.has(b.display.toLowerCase()) || wanted.has(b.ref.toLowerCase())
-      );
-      if (matched.length > 0) {
-        const body = await loadBranchLogs(repoPath, spec, matched, spec.since);
-        const header = `repository: ${spec.path} (${windowLabel(spec.since, spec.until)}, branches named in the memo)`;
-        parts.push(`${header}\n${body}`);
-        continue;
-      }
-      // No pasted branch exists here — fall through to the plain log.
-    }
+    // Pasted branches are an explicit selection, so no default date window;
+    // every other mode keeps the 7-day default.
+    const pasting = !spec.branches && candidates.length > 0;
+    const since = pasting ? spec.since : spec.since ?? DEFAULT_SINCE;
 
-    const since = spec.since ?? DEFAULT_SINCE;
-    let result;
+    let landings: Landing[];
     try {
-      result = await runGit(logArgs(repoPath, since, spec.until));
+      landings = await enumerateLandings(repoPath, base, since, spec.until);
     } catch (e) {
       throw new Error(t("git.failed", { path: spec.path, error: (e as Error).message }));
     }
-    if (result.code !== 0) {
-      const detail = result.stderr.trim().split("\n")[0] ?? "";
-      throw new Error(t("git.failed", { path: spec.path, error: detail }));
+
+    let branches: BranchRef[] = [];
+    if (spec.branches || candidates.length > 0) {
+      try {
+        branches = await enumerateBranches(repoPath);
+      } catch (e) {
+        throw new Error(t("git.failed", { path: spec.path, error: (e as Error).message }));
+      }
     }
-    const header = `repository: ${spec.path} (${windowLabel(since, spec.until)})`;
-    parts.push(`${header}\n${result.stdout.trim() || "(no commits in this window)"}`);
+
+    // Name filtering runs here, before loadLandingSections applies the cap:
+    // selecting out of an already-capped set would let the cap evict the very
+    // landing the user asked for.
+    let selected = landings;
+    let selectedBranches: BranchRef[] = [];
+    let selecting = false;
+    let note = "";
+
+    if (spec.branches) {
+      const regex = globToRegExp(spec.branches);
+      const hit = (name: string | null) => name !== null && regex.test(name);
+      selectedBranches = branches.filter((b) => regex.test(b.display) || regex.test(b.ref));
+      if (selectedBranches.length === 0 && !landings.some((l) => hit(l.branch))) {
+        throw new Error(t("git.no-branches", { glob: spec.branches, path: spec.path }));
+      }
+      selected = landings.filter((l) => l.branch === null || hit(l.branch));
+      selecting = true;
+      note = `, branches ${spec.branches}`;
+    } else if (candidates.length > 0) {
+      const wanted = new Set(candidates.map((c) => c.toLowerCase()));
+      const hit = (name: string | null) => name !== null && wanted.has(name.toLowerCase());
+      selectedBranches = branches.filter(
+        (b) => wanted.has(b.display.toLowerCase()) || wanted.has(b.ref.toLowerCase())
+      );
+      if (selectedBranches.length > 0 || landings.some((l) => hit(l.branch))) {
+        selected = landings.filter((l) => l.branch === null || hit(l.branch));
+        selecting = true;
+        note = ", branches named in the memo";
+      }
+      // Nothing pasted exists here — fall through to no selection.
+    }
+
+    const sections = await loadLandingSections(repoPath, spec, selected);
+    if (selecting) {
+      const landedNames = new Set(
+        landings.flatMap((l) => (l.branch ? [l.branch.toLowerCase()] : []))
+      );
+      sections.push(
+        ...(await loadNotLandedSections(repoPath, spec, base, selectedBranches, since, landedNames))
+      );
+    }
+
+    const header = `repository: ${spec.path} (${windowLabel(since, spec.until)}${note})`;
+    parts.push(`${header}\n${sections.join("\n\n") || "(no commits in this window)"}`);
   }
   return parts.join("\n\n");
 }

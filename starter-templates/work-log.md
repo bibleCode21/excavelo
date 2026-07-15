@@ -39,31 +39,44 @@ blocks, oldest first, in this shape (values illustrative):
 
 Selection and abstraction (the two most important rules):
 
+- Only work that has LANDED counts. The GIT LOG marks this: a
+  `--- landed <date>` section is work that reached the default branch and
+  shipped; a `--- not yet on <base>` section has not shipped. Never write a
+  not-yet-landed section into the work log — it is background that tells you
+  what is still open, nothing more. When the same work appears in both (the
+  log can show a branch's commits as unlanded after its content shipped
+  squashed), it shipped: report it from the landed section and never also as
+  pending.
 - The RAW MEMO usually contains a list of the work handled during the period.
   It may take several forms: issue titles or ticket ids, or branch lines
   pasted straight from git (a branch name, often followed by a commit
   subject). Whatever the form, that list is the filter: include only work
   whose commits overlap an entry in the list. A pasted branch name is the
-  most explicit form — select exactly that branch's own commits from the GIT
-  LOG. Issue titles match loosely by topic — issue wording and commit wording
-  will differ; one issue often spans several commits (merge them into one
-  entry). Work in the log that matches no listed entry is omitted entirely.
-  Only when the memo provides no such list, include every user-visible
-  change instead.
+  most explicit form — select exactly the commits under the landing that
+  carries that branch name. Issue titles match loosely by topic — issue
+  wording and commit wording will differ; one issue often spans several
+  commits (merge them into one entry). Work in the log that matches no listed
+  entry is omitted entirely. Only when the memo provides no such list,
+  include every user-visible change instead.
 - The issue list is selection criteria, not content. An issue with no matching
   commits in the log produces no entry at all — never fabricate a date, module,
   or description for it. And never reinterpret a commit to force a match with
   an issue: match on what the commit actually says; when unsure, omit.
-- When the GIT LOG is grouped by branch (`--- branch:` headers), the branch
-  name is metadata: team conventions often encode a ticket id (e.g.
+- When a landing header names a branch (`--- landed <date> branch: <name>`),
+  that name is metadata: team conventions often encode a ticket id (e.g.
   SR2601-01234), affected company, date, and author. A ticket id or topic
   shared by an issue and a branch name is the strongest match signal — treat
-  that branch's commits as that issue's work. When the issue and the branch
+  that landing's commits as that issue's work. When the issue and the branch
   both carry ticket ids and they differ, that argues against the match:
-  connect them only if the topics clearly align. A branch may also carry commits
-  inherited from another branch it was cut from; attribute each commit to the
-  issue and branch it belongs to by its own message, and ignore inherited
-  commits that belong to a different issue or match none.
+  connect them only if the topics clearly align. A landing may also carry
+  commits inherited from another branch it was cut from; attribute each commit
+  to the issue and branch it belongs to by its own message, and ignore
+  inherited commits that belong to a different issue or match none.
+- A landing header may carry no branch name (`--- landed <date> direct`, or
+  `merge:` followed by a subject). That is normal — not every team's history
+  records a branch name — and it is not a reason to skip the work. Match those
+  commits to the issue list by their own messages and changed paths, exactly
+  as you would issue titles.
 - Keep every entry abstract, at the level of an issue title: name the feature
   or behavior that changed as a user or manager would describe it. Never
   include implementation detail — no file, function, or table names, no code
@@ -78,8 +91,12 @@ Selection and abstraction (the two most important rules):
 Formatting rules:
 
 - A date line per day that has work: `YYYY-MM-DD (weekday)`, weekday
-  abbreviated in the output language (Korean: 수). Date = commit date, unless
-  the memo specifies release/deploy dates — then group under those.
+  abbreviated in the output language (Korean: 수). Date = the date on the
+  `--- landed <date>` header the work sits under, i.e. the day it reached the
+  default branch — not the commit's own date, which is when it was written and
+  is often earlier (work authored in June and merged in July belongs under the
+  July date). Unless the memo specifies release/deploy dates — then group
+  under those.
 - Under each date, one block per module or feature area that changed
   (e.g. 전자결재, 게시판, 근태관리). Infer the module from commit messages and
   changed paths; prefer the memo's own terms when it names them.
