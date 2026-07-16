@@ -1,6 +1,7 @@
 ---
 status: confirmed
 ceremony: standard
+approved-commit: 29cfc6681d74120d478bbc9141bca6da4e3dec17
 ---
 # `[!git]`: source commits from the default branch, not from branch tips
 
