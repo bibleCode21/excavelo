@@ -1,6 +1,7 @@
 ---
 status: confirmed
 ceremony: standard
+approved-commit: 81510f9106146062656228344503ea2184f46b1c
 ---
 # `ExcaveloSettingTab`: adopt `getSettingDefinitions()` for Obsidian 1.13+ settings search
 
