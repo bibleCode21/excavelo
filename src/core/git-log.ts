@@ -173,9 +173,17 @@ function expandHome(p: string): string {
   return os.homedir() + p.slice(1);
 }
 
-/** `feature/2026/*` -> /^feature\/2026\/.*$/i — `*` crosses slashes, `?` is one char. */
+/**
+ * `feature/2026/*` -> /^feature\/2026\/.*$/i — `*` crosses slashes, `?` is one
+ * char. A run of stars collapses to one `.*`: `**` as two would compile to
+ * `.*.*`, which backtracks polynomially, and merge subjects put text of
+ * unbounded length from other people's repositories through here.
+ */
 function globToRegExp(glob: string): RegExp {
-  const escaped = glob.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
+  const escaped = glob
+    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replace(/\*+/g, ".*")
+    .replace(/\?/g, ".");
   return new RegExp(`^${escaped}$`, "i");
 }
 
@@ -285,9 +293,11 @@ function parseMergeBranchName(subject: string): string | null {
 
 /**
  * Landings on the base's first-parent history, newest first. Deliberately
- * uncapped: the cap belongs after selection (a selected branch's landing must
- * survive even when it is not among the most recent), and the window plus the
- * git timeout bound the walk. One line per commit, so the walk is cheap.
+ * uncapped: the cap belongs after selection, since a selected branch's landing
+ * must survive even when it is neither recent nor inside a default window.
+ * In pasted mode there is no window at all, so this walks the whole history
+ * and only the git timeout bounds it — affordable because a first-parent walk
+ * emits one short line per commit.
  */
 async function enumerateLandings(
   repoPath: string,
@@ -417,9 +427,12 @@ async function loadNotLandedSections(
   landedNames: Set<string>
 ): Promise<string[]> {
   const sections: string[] = [];
-  const considered = branches.filter((b) => !landedNames.has(b.display.toLowerCase()));
+  // Both exclusions belong in the filter: applied inside the loop instead, the
+  // base would eat a slot under the cap and silently drop a real branch.
+  const considered = branches.filter(
+    (b) => b.ref !== base && !landedNames.has(b.display.toLowerCase())
+  );
   for (const branch of considered.slice(0, MAX_BRANCHES)) {
-    if (branch.ref === base) continue;
     const args = [
       ...logArgs(repoPath, since, spec.until),
       `${base}...${branch.ref}`,
@@ -487,16 +500,22 @@ export async function loadGitLog(specs: string[], memoText = ""): Promise<string
     }
 
     // Pasted branches are an explicit selection, so no default date window;
-    // every other mode keeps the 7-day default.
-    const pasting = !spec.branches && candidates.length > 0;
-    const since = pasting ? spec.since : spec.since ?? DEFAULT_SINCE;
+    // every other mode keeps the 7-day default. Which of those applies is only
+    // known once this repository's landings have been read, so read at the
+    // widest window the spec allows and narrow below if nothing selects here.
+    // Reading narrow first would miss a landing older than the default window
+    // whose branch has since been deleted, and fall through when it should not.
+    const hasPastedCandidates = !spec.branches && candidates.length > 0;
+    let since = hasPastedCandidates ? spec.since : spec.since ?? DEFAULT_SINCE;
 
-    let landings: Landing[];
-    try {
-      landings = await enumerateLandings(repoPath, base, since, spec.until);
-    } catch (e) {
-      throw new Error(t("git.failed", { path: spec.path, error: (e as Error).message }));
-    }
+    const readLandings = async (from: string | null): Promise<Landing[]> => {
+      try {
+        return await enumerateLandings(repoPath, base, from, spec.until);
+      } catch (e) {
+        throw new Error(t("git.failed", { path: spec.path, error: (e as Error).message }));
+      }
+    };
+    let landings = await readLandings(since);
 
     let branches: BranchRef[] = [];
     if (spec.branches || candidates.length > 0) {
@@ -507,40 +526,50 @@ export async function loadGitLog(specs: string[], memoText = ""): Promise<string
       }
     }
 
-    // Name filtering runs here, before loadLandingSections applies the cap:
-    // selecting out of an already-capped set would let the cap evict the very
-    // landing the user asked for.
-    let selected = landings;
+    // `hit` decides which *named* landings survive; a nameless landing has no
+    // name to match and is never filtered by one.
+    let hit: ((name: string | null) => boolean) | null = null;
     let selectedBranches: BranchRef[] = [];
-    let selecting = false;
     let note = "";
 
     if (spec.branches) {
       const regex = globToRegExp(spec.branches);
-      const hit = (name: string | null) => name !== null && regex.test(name);
+      const match = (name: string | null) => name !== null && regex.test(name);
       selectedBranches = branches.filter((b) => regex.test(b.display) || regex.test(b.ref));
-      if (selectedBranches.length === 0 && !landings.some((l) => hit(l.branch))) {
+      if (selectedBranches.length === 0 && !landings.some((l) => match(l.branch))) {
         throw new Error(t("git.no-branches", { glob: spec.branches, path: spec.path }));
       }
-      selected = landings.filter((l) => l.branch === null || hit(l.branch));
-      selecting = true;
+      hit = match;
       note = `, branches ${spec.branches}`;
     } else if (candidates.length > 0) {
       const wanted = new Set(candidates.map((c) => c.toLowerCase()));
-      const hit = (name: string | null) => name !== null && wanted.has(name.toLowerCase());
+      const match = (name: string | null) => name !== null && wanted.has(name.toLowerCase());
       selectedBranches = branches.filter(
         (b) => wanted.has(b.display.toLowerCase()) || wanted.has(b.ref.toLowerCase())
       );
-      if (selectedBranches.length > 0 || landings.some((l) => hit(l.branch))) {
-        selected = landings.filter((l) => l.branch === null || hit(l.branch));
-        selecting = true;
+      if (selectedBranches.length > 0 || landings.some((l) => match(l.branch))) {
+        hit = match;
         note = ", branches named in the memo";
       }
-      // Nothing pasted exists here — fall through to no selection.
+      // Nothing pasted exists in this repository — fall through to no
+      // selection. The window has to come back with it: `candidates` are
+      // shared across every spec, so a name that matched elsewhere must not
+      // strand this repository on an unbounded walk.
     }
 
+    const hasSelection = hit !== null;
+    if (!hasSelection && since === null) {
+      since = DEFAULT_SINCE;
+      landings = await readLandings(since);
+    }
+
+    // Name filtering runs here, before loadLandingSections applies the cap:
+    // selecting out of an already-capped set would let the cap evict the very
+    // landing the user asked for.
+    const selected = hit ? landings.filter((l) => l.branch === null || hit!(l.branch)) : landings;
+
     const sections = await loadLandingSections(repoPath, spec, selected);
-    if (selecting) {
+    if (hasSelection) {
       const landedNames = new Set(
         landings.flatMap((l) => (l.branch ? [l.branch.toLowerCase()] : []))
       );

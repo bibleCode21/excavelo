@@ -16,7 +16,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - **`[!git]` dates are landing dates.** A section is dated by the day its work reached the default branch, not the day it was written, and `since:`/`until:` bound the same date — so a report for a window no longer contains entries dated outside it. Work authored in June and merged in July is reported under July. The per-commit lines still show author dates.
 - **`[!git] <path>` with no branch selection** now reports the default branch instead of whichever branch happened to be checked out.
 - Work that has not landed is labelled `--- not yet on <base>` and is never written up as shipped. `work-log` omits it; `work-report` feeds it to "In progress / carried over".
-- Known limitation, in squash- and rebase-merge repositories only: landings carry no branch name there, so pasted branch names cannot narrow the log, and a branch's commits may show as unlanded after their content shipped squashed. The templates resolve the latter (a landed section wins). See `docs/specs/git-log-master-source.md`.
+- Known limitations, in squash- and rebase-merge repositories only. Landings carry no branch name there, so: pasted branch names cannot narrow the log; a branch's commits may show as unlanded after their content shipped squashed (the templates resolve this — a landed section wins); and because nothing narrows the log, a window holding more than 50 landings drops the oldest without regard to what was selected, so a busy repository can omit work you asked for — narrow the window with `since:` if you work that way. See `docs/specs/git-log-master-source.md`.
 
 ## [1.4.2] - 2026-07-15
 

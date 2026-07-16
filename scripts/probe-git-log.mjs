@@ -73,7 +73,8 @@ function loadModule() {
     entry,
     `export * from ${JSON.stringify(path.join(repoRoot, "src/core/git-log"))};\n` +
       `export { t } from ${JSON.stringify(path.join(repoRoot, "src/i18n"))};\n` +
-      `export { buildPrompt } from ${JSON.stringify(path.join(repoRoot, "src/core/prompt"))};\n`
+      `export { buildPrompt } from ${JSON.stringify(path.join(repoRoot, "src/core/prompt"))};\n` +
+      `export { STARTER_TEMPLATES } from ${JSON.stringify(path.join(repoRoot, "src/core/starter-templates"))};\n`
   );
   esbuild.buildSync({
     entryPoints: [entry],
@@ -232,6 +233,98 @@ function buildManyLandingsFixture(count) {
 }
 
 /**
+ * A12's fixture: one landing old enough that only an unbounded walk reaches it,
+ * and one recent enough that the 7-day default does.
+ *
+ * The recent commit is dated relative to now — the one place in this probe
+ * where that is right rather than drift. Every other fixture is fixed in 2024
+ * and every other assertion passes an explicit window, which is precisely what
+ * kept the default-window path unexercised and hid the bug A12 exists for. A12
+ * is *about* the default window, so its fixture has to straddle that window's
+ * live boundary. Nothing below asserts an absolute date: the criterion is an
+ * equality between two runs taken at the same instant, which holds whatever the
+ * clock says.
+ */
+function buildDefaultWindowFixture() {
+  const repo = path.join(tmp, "window");
+  fs.mkdirSync(repo);
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  const git = makeGit(repo);
+  const commit = (file, msg, dates) => {
+    fs.writeFileSync(path.join(repo, file), `${msg}\n`);
+    git(["add", "-A"]);
+    git(["commit", "-q", "-m", msg], dates);
+  };
+
+  commit("README", "base", at("2024-01-01T12:00:00Z"));
+  const base = git(["rev-parse", "HEAD"]).trim();
+
+  // A13's sharp case: merged, then the source branch deleted — the ordinary
+  // GitHub flow. The name now survives only on the landing, so the match test
+  // has to see a landing older than the default window or it will not see it
+  // at all. This is where reading narrow first is wrong, not merely slower.
+  git(["checkout", "-q", "-b", "feature/deleted", base]);
+  commit("deleted.txt", "deleted: work", at("2024-06-05T12:00:00Z"));
+  git(["checkout", "-q", "main"]);
+  git(
+    ["merge", "--no-ff", "-m", "Merge branch 'feature/deleted'", "feature/deleted"],
+    at("2024-07-09T12:00:00Z")
+  );
+  git(["branch", "-D", "feature/deleted"]);
+
+  // Reachable only by an unbounded walk — the bug's tell. Branch still exists.
+  git(["checkout", "-q", "-b", "feature/old", base]);
+  commit("old.txt", "old: work", at("2024-06-01T12:00:00Z"));
+  git(["checkout", "-q", "main"]);
+  git(
+    ["merge", "--no-ff", "-m", "Merge branch 'feature/old'", "feature/old"],
+    at("2024-07-10T12:00:00Z")
+  );
+
+  // Inside the 7-day default, so the window is provably live, not just empty.
+  commit("recent.txt", "recent work", at(new Date(Date.now() - 2 * 86_400_000).toISOString()));
+  return repo;
+}
+
+/**
+ * A14's fixture: a merge subject carrying a 100k-character branch name, which
+ * `parseMergeBranchName` lifts onto the landing and the user's `branches:` glob
+ * is then tested against. That is the real path the security finding named — a
+ * third party's commit subject reaching the user's glob — and it is reached
+ * through loadGitLog, exactly as A10's globs are. globToRegExp stays unexported.
+ *
+ * `feature/hotfix` exists so the glob matches a ref: that makes the
+ * git.no-branches guard short-circuit, and the long name then meets the regex
+ * at the name-filtering step rather than inside a throw.
+ */
+const HUGE_NAME_LENGTH = 100_000;
+
+function buildLongSubjectFixture() {
+  const repo = path.join(tmp, "redos");
+  fs.mkdirSync(repo);
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  const git = makeGit(repo);
+  const commit = (file, msg, dates) => {
+    fs.writeFileSync(path.join(repo, file), `${msg}\n`);
+    git(["add", "-A"]);
+    git(["commit", "-q", "-m", msg], dates);
+  };
+
+  commit("README", "base", at("2024-01-01T12:00:00Z"));
+  const base = git(["rev-parse", "HEAD"]).trim();
+  git(["branch", "feature/hotfix"]);
+
+  git(["checkout", "-q", "-b", "feature/huge", base]);
+  commit("huge.txt", "huge: work", at("2024-06-01T12:00:00Z"));
+  git(["checkout", "-q", "main"]);
+  git(
+    ["merge", "--no-ff", "-m", `Merge branch '${"a".repeat(HUGE_NAME_LENGTH)}'`, "feature/huge"],
+    at("2024-07-10T12:00:00Z")
+  );
+  return repo;
+}
+
+/**
  * loadGitLog returns one freeform string (I4). Section bodies carry blank
  * lines of their own (the pretty format opens with %n, --stat adds more), so
  * sections are cut on their header lines, never on blank lines.
@@ -258,7 +351,7 @@ const hasSubject = (text, subject) =>
 const countOf = (text, needle) => text.split(needle).length - 1;
 
 const mod = loadModule();
-const { parseGitSpec, branchCandidates, loadGitLog, buildPrompt, t } = mod;
+const { parseGitSpec, branchCandidates, loadGitLog, buildPrompt, STARTER_TEMPLATES, t } = mod;
 
 console.log("parseGitSpec");
 
@@ -606,6 +699,168 @@ check("A11 — a pasted branch's landing survives even when the cap would evict 
 check("A11 — and the unselected landings are filtered out", () => {
   assert.equal(landedSections(manyOut).length, 1);
   assert.ok(!manyOut.includes("feature/n55"), "an unselected landing was emitted");
+});
+
+/**
+ * A12. `branchCandidates` takes any slash-bearing token, so a memo mentioning a
+ * file path or a date is the ordinary case: it must leave the repository in the
+ * no-selection case *entirely*, window included. Asserted as an equality
+ * against the same repository read with a memo carrying no slash-token at all —
+ * no absolute date, so no clock drift.
+ */
+console.log("default window survives a fall-through (A12)");
+
+const win = buildDefaultWindowFixture();
+const noToken = await loadGitLog([win], "no slash tokens here at all");
+const filePathToken = await loadGitLog([win], "see src/core/git-log.ts for details");
+const dateToken = await loadGitLog([win], "standup 2026/07/15 notes");
+
+check("A12 — a non-matching file-path token leaves the default window intact", () => {
+  assert.equal(filePathToken, noToken);
+});
+
+check("A12 — a non-matching date token likewise", () => {
+  assert.equal(dateToken, noToken);
+});
+
+check("A12 — the reported window is the 7-day default, not all history", () => {
+  assert.ok(
+    filePathToken.includes("(since 7 days ago)"),
+    `expected the 7-day default; header reads: ${filePathToken.split("\n")[0]}`
+  );
+  assert.ok(!filePathToken.includes("all history"), "the repository walked its entire history");
+});
+
+check("A12 — and that window is live: the recent landing is in, the old one out", () => {
+  assert.ok(hasSubject(filePathToken, "recent work"), "the recent landing is missing");
+  assert.ok(!hasSubject(filePathToken, "old: work"), "a landing outside the 7-day default was walked");
+});
+
+/**
+ * A13 — the match half of the window rule. A repository where a pasted name
+ * matches takes the explicit-selection window (none, = all history), not the
+ * 7-day default. The landings below are dated 2024 and so are older than the
+ * default window forever, which is what makes this clock-stable.
+ */
+const pastedOld = await loadGitLog([win], "finished feature/old");
+const pastedDeleted = await loadGitLog([win], "finished feature/deleted");
+
+check("A13 — a matched pasted name reports its landing however old", () => {
+  assert.ok(
+    section(pastedOld, "--- landed 2024-07-10 branch: feature/old"),
+    "a landing older than the 7-day default was missed — the landings were read narrow"
+  );
+  assert.ok(pastedOld.includes("(all history"), `expected no default window; got: ${pastedOld.split("\n")[0]}`);
+});
+
+check("A13 — the name matches only a landing: source branch deleted after merge", () => {
+  assert.ok(
+    section(pastedDeleted, "--- landed 2024-07-09 branch: feature/deleted"),
+    "a deleted branch's landing was invisible — the match was tested against a narrow window"
+  );
+  assert.ok(hasSubject(pastedDeleted, "deleted: work"), "the landing's commits are missing");
+});
+
+/** The window a repository ends up with comes from its own selection outcome. */
+const repoPart = (out, p) => {
+  const start = out.indexOf(`repository: ${p} (`);
+  assert.ok(start >= 0, `no output section for ${p}`);
+  const next = out.indexOf("\nrepository: ", start + 1);
+  return next < 0 ? out.slice(start) : out.slice(start, next);
+};
+
+// feature/merged selects in the main fixture and matches nothing in `win`,
+// which must therefore fall through to the default on its own account.
+const twoRepos = await loadGitLog([`${repo} ${WINDOW}`, win], "shipped feature/merged");
+
+check("A12 — one repository's match does not drop another's default window", () => {
+  assert.equal(repoPart(twoRepos, win), repoPart(noToken, win));
+});
+
+check("A12 — while the repository that does match still selects", () => {
+  const mine = repoPart(twoRepos, repo);
+  assert.ok(mine.includes(", branches named in the memo"), "the matching repository stopped selecting");
+  assert.ok(section(mine, MERGED_HEADER), "the selected landing is missing");
+});
+
+/**
+ * A14. `**` must compile to one `.*`, not two.
+ *
+ * The glob carries a trailing literal on purpose. `^.*.*$` only backtracks when
+ * the match *fails*, and a bare `branches:**` matches every subject, so it
+ * returns in ~0.3ms even uncollapsed — the criterion would pass against the
+ * very code it exists to catch. `**​/hotfix` against a subject that does not end
+ * in `/hotfix` is the failing case, and it is what reproduces the contract's
+ * 7.6s: measured here at 7531ms uncollapsed vs 0.1ms collapsed, for the same
+ * 100k input. It is also the realistic shape — a user globbing for their own
+ * branches while somebody else's merge subject flows through the same regex.
+ *
+ * The threshold is the contract's "well under a second". The margin either side
+ * is wide (see the reported timing), so this discriminates rather than races.
+ */
+console.log("star runs collapse (A14)");
+
+const redos = buildLongSubjectFixture();
+const t0 = performance.now();
+const redosOut = await loadGitLog([`${redos} since:2024-01-01 branches:**/hotfix`]);
+const elapsed = performance.now() - t0;
+console.log(`       (loadGitLog over a ${HUGE_NAME_LENGTH.toLocaleString()}-char merge subject: ${elapsed.toFixed(0)}ms)`);
+
+check("A14 — a star run over a 100k merge subject returns well under a second", () => {
+  assert.ok(elapsed < 1000, `took ${elapsed.toFixed(0)}ms — the star run did not collapse`);
+});
+
+check("A14 — and the glob still selects correctly", () => {
+  // The 100k name does not end in /hotfix, so its landing is filtered out; the
+  // nameless base landing is not filtered by a name it does not have.
+  assert.ok(!redosOut.includes("aaaaaaaaaa"), "the non-matching long-named landing was emitted");
+  assert.ok(redosOut.includes("branches **/hotfix"), `unexpected header: ${redosOut.split("\n")[0]}`);
+});
+
+/**
+ * A15 — the shipped LLM instructions say what SC6's second half claims.
+ * Asserted against the generated module (the prebuild hook's output, never
+ * hand-edited) on A9's precedent, and flattened first so a reflow of the
+ * markdown cannot break a rule that is still there. Nothing else checks these:
+ * a reworded-away instruction is a silent behavior change.
+ */
+console.log("templates (A15)");
+
+const flat = (s) => s.replace(/\s+/g, " ");
+const templateBody = (filename) => {
+  const found = STARTER_TEMPLATES.find((x) => x.filename === filename);
+  assert.ok(found, `${filename} is missing from STARTER_TEMPLATES`);
+  return flat(found.content);
+};
+const workLog = templateBody("work-log.md");
+const workReport = templateBody("work-report.md");
+
+check("A15 — work-log no longer dates blocks by the commit date", () => {
+  assert.ok(!workLog.includes("Date = commit date"), "the old commit-date instruction is still shipped");
+});
+
+check("A15 — work-log keys date blocks to the landing header's date", () => {
+  assert.ok(
+    workLog.includes("Date = the date on the `--- landed <date>` header the work sits under"),
+    "the landing-date rule is missing or reworded"
+  );
+});
+
+check("A15 — work-log states a not-yet-landed section is never its content", () => {
+  assert.ok(
+    workLog.includes("Never write a not-yet-landed section into the work log"),
+    "the not-yet-landed exclusion is missing or reworded"
+  );
+});
+
+check("A15 — work-report feeds not-yet-landed sections to In progress / carried over", () => {
+  const heading = "## In progress / carried over";
+  const idx = workReport.indexOf(heading);
+  assert.ok(idx >= 0, "the In progress / carried over section is gone");
+  assert.ok(
+    workReport.slice(idx).includes("Work that has not landed: the GIT LOG's `--- not yet on <base>` sections"),
+    "not-yet-landed sections no longer feed In progress / carried over"
+  );
 });
 
 fs.rmSync(tmp, { recursive: true, force: true });

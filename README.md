@@ -99,10 +99,14 @@ rebase workflows all work; nothing needs configuring.
 If you paste branch lines (`branch-name  subject`, straight from git output)
 into the memo, ExcaVelo reports exactly the landings carrying those branch
 names — ideal for one-branch-per-issue teams. The `work-report` and `work-log`
-templates are built for this input. (Branch names only survive into history
-when a team merges with merge commits; where they don't — squash and rebase
-workflows — the landings are still reported, they just can't be narrowed by
-name.)
+templates are built for this input.
+
+Branch names only survive into history when a team merges with merge commits.
+Where they don't — squash and rebase workflows — landings are still reported,
+but two things get worse: pasted names can't narrow the log, and past 50
+landings in a window the oldest are dropped without regard to what you asked
+for, so a busy repository can lose work you selected. Narrow the window with
+`since:` if you work that way.
 
 ## Templates
 
