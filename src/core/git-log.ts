@@ -174,16 +174,26 @@ function expandHome(p: string): string {
 }
 
 /**
+ * A glob longer than this matches nothing (falls through to git.no-branches):
+ * no real branch filter needs it, and it bounds globMatch's glob.length factor
+ * so an unbounded merge-subject can never multiply against an unbounded glob.
+ */
+const MAX_GLOB_LENGTH = 200;
+
+/**
  * `feature/2026/*` matches `feature/2026/x` — `*` crosses slashes, `?` is one
  * char, everything else is a literal (case-insensitive). Deliberately not
  * regex-based: a chained-`.*` translation of a multi-`*` glob backtracks
  * exponentially against an adversarial subject, and merge subjects put text of
  * unbounded length from other people's repositories through here. This is the
  * standard two-pointer wildcard matcher (no recursion, no backtracking beyond
- * retrying the most recent `*` — worst case O(text.length * glob.length),
- * never exponential).
+ * retrying the most recent `*`) — worst case O(text.length * glob.length),
+ * never exponential, but still quadratic if both factors are unbounded. Text
+ * length is out of this function's control (a third party's commit subject),
+ * so glob length is what MAX_GLOB_LENGTH bounds.
  */
 function globMatch(text: string, glob: string): boolean {
+  if (glob.length > MAX_GLOB_LENGTH) return false;
   const s = text.toLowerCase();
   const p = glob.toLowerCase();
   let si = 0;

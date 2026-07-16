@@ -47,6 +47,13 @@ const MAX_BRANCHES = Number(
 );
 assert.ok(Number.isInteger(MAX_BRANCHES), "could not read MAX_BRANCHES out of git-log.ts");
 
+const MAX_GLOB_LENGTH = Number(
+  /const MAX_GLOB_LENGTH = (\d+)/.exec(
+    fs.readFileSync(path.join(repoRoot, "src/core/git-log.ts"), "utf8")
+  )?.[1]
+);
+assert.ok(Number.isInteger(MAX_GLOB_LENGTH), "could not read MAX_GLOB_LENGTH out of git-log.ts");
+
 const failures = [];
 function check(name, fn) {
   try {
@@ -974,6 +981,42 @@ console.log(`       (loadGitLog over the same subject, 8 literal-separated stars
 
 check("A14 — literal-separated stars over a 100k merge subject returns well under a second", () => {
   assert.ok(elapsedSeparated < 1000, `took ${elapsedSeparated.toFixed(0)}ms`);
+});
+
+/**
+ * A14 continued — security-panel regression: globMatch is O(text.length *
+ * glob.length), not O(text.length). Bounded on the text side by nothing (a
+ * third party's merge subject is unbounded by design), so the glob side needs
+ * its own bound or a long-enough glob quadratically compounds against a long
+ * subject. Two checks: a too-long glob is refused outright (falls through as
+ * a non-match, same as any other glob that selects nothing), and a
+ * worst-case-shaped glob sitting exactly at the cap still returns fast
+ * against the 100k-char subject — the cap has to hold at its own boundary,
+ * not just somewhere comfortably under it.
+ */
+const overLongGlob = "*".repeat(MAX_GLOB_LENGTH + 1);
+let overLongGlobError = null;
+try {
+  await loadGitLog([`${redos} since:2024-01-01 branches:${overLongGlob}`]);
+} catch (e) {
+  overLongGlobError = e.message;
+}
+
+check("A14 — a glob over MAX_GLOB_LENGTH matches nothing, even one that is all stars", () => {
+  assert.equal(overLongGlobError, t("git.no-branches", { glob: overLongGlob, path: redos }));
+});
+
+// Worst-case shape at the cap boundary: one star, then (MAX_GLOB_LENGTH - 2)
+// a's, then a trailing b — matches every a-prefix of the subject up to the
+// last character before failing, forcing a full retry at every shift.
+const worstCaseGlob = `*${"a".repeat(MAX_GLOB_LENGTH - 2)}b`;
+const t2 = performance.now();
+await loadGitLog([`${redos} since:2024-01-01 branches:${worstCaseGlob}`]).catch(() => {});
+const elapsedWorstCase = performance.now() - t2;
+console.log(`       (loadGitLog over the same subject, worst-case glob at MAX_GLOB_LENGTH: ${elapsedWorstCase.toFixed(0)}ms)`);
+
+check("A14 — a worst-case glob at the MAX_GLOB_LENGTH cap returns well under a second", () => {
+  assert.ok(elapsedWorstCase < 1000, `took ${elapsedWorstCase.toFixed(0)}ms`);
 });
 
 /**
