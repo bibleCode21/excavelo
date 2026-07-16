@@ -174,17 +174,40 @@ function expandHome(p: string): string {
 }
 
 /**
- * `feature/2026/*` -> /^feature\/2026\/.*$/i — `*` crosses slashes, `?` is one
- * char. A run of stars collapses to one `.*`: `**` as two would compile to
- * `.*.*`, which backtracks polynomially, and merge subjects put text of
- * unbounded length from other people's repositories through here.
+ * `feature/2026/*` matches `feature/2026/x` — `*` crosses slashes, `?` is one
+ * char, everything else is a literal (case-insensitive). Deliberately not
+ * regex-based: a chained-`.*` translation of a multi-`*` glob backtracks
+ * exponentially against an adversarial subject, and merge subjects put text of
+ * unbounded length from other people's repositories through here. This is the
+ * standard two-pointer wildcard matcher (no recursion, no backtracking beyond
+ * retrying the most recent `*` — worst case O(text.length * glob.length),
+ * never exponential).
  */
-function globToRegExp(glob: string): RegExp {
-  const escaped = glob
-    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-    .replace(/\*+/g, ".*")
-    .replace(/\?/g, ".");
-  return new RegExp(`^${escaped}$`, "i");
+function globMatch(text: string, glob: string): boolean {
+  const s = text.toLowerCase();
+  const p = glob.toLowerCase();
+  let si = 0;
+  let pi = 0;
+  let starIdx = -1;
+  let starSi = 0;
+  while (si < s.length) {
+    if (pi < p.length && (p[pi] === "?" || p[pi] === s[si])) {
+      si++;
+      pi++;
+    } else if (pi < p.length && p[pi] === "*") {
+      starIdx = pi;
+      starSi = si;
+      pi++;
+    } else if (starIdx !== -1) {
+      pi = starIdx + 1;
+      starSi++;
+      si = starSi;
+    } else {
+      return false;
+    }
+  }
+  while (pi < p.length && p[pi] === "*") pi++;
+  return pi === p.length;
 }
 
 interface BranchRef {
@@ -533,9 +556,9 @@ export async function loadGitLog(specs: string[], memoText = ""): Promise<string
     let note = "";
 
     if (spec.branches) {
-      const regex = globToRegExp(spec.branches);
-      const match = (name: string | null) => name !== null && regex.test(name);
-      selectedBranches = branches.filter((b) => regex.test(b.display) || regex.test(b.ref));
+      const glob = spec.branches;
+      const match = (name: string | null) => name !== null && globMatch(name, glob);
+      selectedBranches = branches.filter((b) => globMatch(b.display, glob) || globMatch(b.ref, glob));
       if (selectedBranches.length === 0 && !landings.some((l) => match(l.branch))) {
         throw new Error(t("git.no-branches", { glob: spec.branches, path: spec.path }));
       }
@@ -565,8 +588,17 @@ export async function loadGitLog(specs: string[], memoText = ""): Promise<string
 
     // Name filtering runs here, before loadLandingSections applies the cap:
     // selecting out of an already-capped set would let the cap evict the very
-    // landing the user asked for.
-    const selected = hit ? landings.filter((l) => l.branch === null || hit!(l.branch)) : landings;
+    // landing the user asked for. Matched named landings are placed ahead of
+    // nameless ones for the same reason — nameless landings always pass this
+    // filter (no name to reject them by), so a repository that also takes
+    // frequent direct-to-base commits could otherwise fill every cap slot with
+    // nameless landings and evict the one landing that was actually selected.
+    const selected = hit
+      ? [
+          ...landings.filter((l) => l.branch !== null && hit!(l.branch)),
+          ...landings.filter((l) => l.branch === null),
+        ]
+      : landings;
 
     const sections = await loadLandingSections(repoPath, spec, selected);
     if (hasSelection) {

@@ -8,7 +8,7 @@
  * and asserts against the bundle with node:assert. No framework, no new
  * dependency — esbuild is already a devDependency.
  *
- * Covers the work contract's acceptance criteria A1-A11 and invariants I1-I4
+ * Covers the work contract's acceptance criteria A1-A16 and invariants I1-I4
  * (docs/specs/git-log-master-source.md). A1-A8 run against buildFixture(),
  * which carries every merge shape the contract names; A9 calls buildPrompt on
  * a hand-built context (prompt.ts imports types only); A11 needs more than
@@ -117,7 +117,7 @@ const at = (author, committer = author) => ({
  * The contract's fixture: a base commit, a --no-ff-merged branch, a
  * never-merged branch, a squash-merged branch, a rebased-and-fast-forwarded
  * branch, an octopus merge, and a direct commit — plus the three bare branches
- * the globToRegExp cases below match against.
+ * the globMatch cases below match against.
  *
  * Every branch touches its own files, so no merge here can conflict. Landings
  * are built in committer-date order (2024-07-10 .. 2024-07-14), so the
@@ -271,6 +271,48 @@ function buildManyUnlandedBranchesFixture(count) {
 }
 
 /**
+ * A16's fixture: one named merge landing, old, followed by more
+ * than MAX_BRANCHES nameless direct commits (newer). Pasting the merge's
+ * branch name sets since to null (the window rule), so `enumerateLandings`
+ * returns every nameless commit too — nameless landings are never filtered
+ * out by name (§Selection). Before the fix, `loadLandingSections` sliced
+ * newest-first without prioritizing the matched landing, so the nameless
+ * commits — all newer — filled every cap slot and evicted the one landing
+ * the user actually selected.
+ */
+function buildSelectedLandingCrowdedByNamelessFixture(directCount) {
+  const repo = path.join(tmp, "crowded");
+  fs.mkdirSync(repo);
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  const git = makeGit(repo);
+  fs.writeFileSync(path.join(repo, "README"), "crowded\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", "base"], at("2024-01-01T12:00:00Z"));
+
+  const tree = git(["rev-parse", "main^{tree}"]).trim();
+  const base = git(["rev-parse", "main"]).trim();
+  const sideEnv = at("2024-01-05T12:00:00Z");
+  const side = git(["commit-tree", tree, "-p", base, "-m", "work on feature/selected"], sideEnv).trim();
+  const merge = git(
+    ["commit-tree", tree, "-p", base, "-p", side, "-m", "Merge branch 'feature/selected'"],
+    sideEnv
+  ).trim();
+  git(["branch", "feature/selected", side]);
+  git(["update-ref", "refs/heads/main", merge]);
+  git(["reset", "-q", "--hard", "main"]);
+
+  // Every direct commit lands after the merge, so a naive newest-first cap
+  // fills entirely with these before the merge landing gets a slot.
+  for (let i = 1; i <= directCount; i++) {
+    const env = at(new Date(Date.UTC(2024, 1, 1, 12) + i * 86_400_000).toISOString());
+    fs.writeFileSync(path.join(repo, `d${i}.txt`), `${i}\n`);
+    git(["add", "-A"]);
+    git(["commit", "-q", "-m", `direct work ${i}`], env);
+  }
+  return repo;
+}
+
+/**
  * A12's fixture: one landing old enough that only an unbounded walk reaches it,
  * and one recent enough that the 7-day default does.
  *
@@ -329,7 +371,7 @@ function buildDefaultWindowFixture() {
  * `parseMergeBranchName` lifts onto the landing and the user's `branches:` glob
  * is then tested against. That is the real path the security finding named — a
  * third party's commit subject reaching the user's glob — and it is reached
- * through loadGitLog, exactly as A10's globs are. globToRegExp stays unexported.
+ * through loadGitLog, exactly as A10's globs are. globMatch stays unexported.
  *
  * `feature/hotfix` exists so the glob matches a ref: that makes the
  * git.no-branches guard short-circuit, and the long name then meets the regex
@@ -449,12 +491,12 @@ check("duplicates collapsed", () => {
 });
 
 /**
- * globToRegExp is not exported. Its only observable path is loadGitLog's
+ * globMatch is not exported. Its only observable path is loadGitLog's
  * `branches:<glob>` filter, which throws git.no-branches when zero branches
  * match — upstream of the commit selection this contract replaces, so these
  * assertions do not pin behavior that is the deliverable to remove.
  */
-console.log("globToRegExp (via loadGitLog branches: filter)");
+console.log("globMatch (via loadGitLog branches: filter)");
 
 const repo = buildFixture();
 // Bare branches present for these cases: feature/2026/a/b, probe/xy, probe/axb.
@@ -777,6 +819,24 @@ check("base ref does not waste a cap slot ahead of a real branch", () => {
 });
 
 /**
+ * A16. A pasted-name match must not be evictable by nameless landings that
+ * merely happen to be more recent (git-log.ts's `selected` computation in
+ * loadGitLog). None of A1-A15 mixes a matched named landing with more-recent
+ * nameless landings in the same fixture, so this had no coverage before this
+ * probe.
+ */
+console.log("a selected landing survives nameless landings crowding the cap (A16)");
+
+const crowded = buildSelectedLandingCrowdedByNamelessFixture(MAX_BRANCHES + 10);
+const crowdedOut = await loadGitLog([`${crowded} since:2024-01-01`], "picked up feature/selected");
+
+check("A16 — the selected merge landing is not evicted by newer nameless landings", () => {
+  const s = section(crowdedOut, "--- landed 2024-01-05 branch: feature/selected");
+  assert.ok(s, "feature/selected's landing was evicted — nameless landings filled the cap first");
+  assert.ok(hasSubject(s.body, "work on feature/selected"), "the landing's commit is missing");
+});
+
+/**
  * A12. `branchCandidates` takes any slash-bearing token, so a memo mentioning a
  * file path or a date is the ordinary case: it must leave the repository in the
  * no-selection case *entirely*, window included. Asserted as an equality
@@ -859,30 +919,38 @@ check("A12 — while the repository that does match still selects", () => {
 });
 
 /**
- * A14. `**` must compile to one `.*`, not two.
+ * A14. The glob matcher must never backtrack, against any glob shape.
  *
- * The glob carries a trailing literal on purpose. `^.*.*$` only backtracks when
- * the match *fails*, and a bare `branches:**` matches every subject, so it
- * returns in ~0.3ms even uncollapsed — the criterion would pass against the
- * very code it exists to catch. `**​/hotfix` against a subject that does not end
- * in `/hotfix` is the failing case, and it is what reproduces the contract's
- * 7.6s: measured here at 7531ms uncollapsed vs 0.1ms collapsed, for the same
- * 100k input. It is also the realistic shape — a user globbing for their own
- * branches while somebody else's merge subject flows through the same regex.
+ * `globMatch` is a two-pointer matcher (no regex, no recursion), so no shape —
+ * one star, an adjacent run, or several stars separated by literals — can
+ * blow up. This directly reproduces the security finding: a Round 2 fix that
+ * only collapsed *adjacent* star runs (`/\*+/g` -> one `.*`) left literal-
+ * separated stars still compiling to chained `.*.*` segments, which
+ * backtracks exponentially — reproduced at 7531ms for `**​/hotfix` and again,
+ * independently, at ~11.8s for an 8-star glob with no `**` at all, both
+ * against the same 100k-char merge subject. Replacing the regex entirely
+ * closes both shapes at once, so this checks both.
  *
- * The threshold is the contract's "well under a second". The margin either side
- * is wide (see the reported timing), so this discriminates rather than races.
+ * The glob carries a trailing literal that the subject cannot satisfy on
+ * purpose: a pattern that matches immediately (e.g. bare `**`) or fails at a
+ * prefix exercises no backtracking either way and would pass vacuously
+ * against the very bug this criterion exists to catch (a real trap that
+ * caught both this contract's author and its reviewer — see the spec).
+ *
+ * The threshold is the contract's "well under a second". The margin either
+ * side is wide (see the reported timing), so this discriminates rather than
+ * races.
  */
-console.log("star runs collapse (A14)");
+console.log("glob matcher never backtracks (A14)");
 
 const redos = buildLongSubjectFixture();
 const t0 = performance.now();
 const redosOut = await loadGitLog([`${redos} since:2024-01-01 branches:**/hotfix`]);
 const elapsed = performance.now() - t0;
-console.log(`       (loadGitLog over a ${HUGE_NAME_LENGTH.toLocaleString()}-char merge subject: ${elapsed.toFixed(0)}ms)`);
+console.log(`       (loadGitLog over a ${HUGE_NAME_LENGTH.toLocaleString()}-char merge subject, adjacent-star glob: ${elapsed.toFixed(0)}ms)`);
 
-check("A14 — a star run over a 100k merge subject returns well under a second", () => {
-  assert.ok(elapsed < 1000, `took ${elapsed.toFixed(0)}ms — the star run did not collapse`);
+check("A14 — an adjacent star run over a 100k merge subject returns well under a second", () => {
+  assert.ok(elapsed < 1000, `took ${elapsed.toFixed(0)}ms`);
 });
 
 check("A14 — and the glob still selects correctly", () => {
@@ -890,6 +958,22 @@ check("A14 — and the glob still selects correctly", () => {
   // nameless base landing is not filtered by a name it does not have.
   assert.ok(!redosOut.includes("aaaaaaaaaa"), "the non-matching long-named landing was emitted");
   assert.ok(redosOut.includes("branches **/hotfix"), `unexpected header: ${redosOut.split("\n")[0]}`);
+});
+
+// The security finding's own shape: several single stars separated by
+// literals, no `**` anywhere — the case the star-run-collapse fix left open.
+const t1 = performance.now();
+let separatedStarsOut;
+try {
+  separatedStarsOut = await loadGitLog([`${redos} since:2024-01-01 branches:${"a*".repeat(8)}zzz`]);
+} catch (e) {
+  separatedStarsOut = e.message; // git.no-branches is an acceptable outcome; the timing is what matters
+}
+const elapsedSeparated = performance.now() - t1;
+console.log(`       (loadGitLog over the same subject, 8 literal-separated stars: ${elapsedSeparated.toFixed(0)}ms)`);
+
+check("A14 — literal-separated stars over a 100k merge subject returns well under a second", () => {
+  assert.ok(elapsedSeparated < 1000, `took ${elapsedSeparated.toFixed(0)}ms`);
 });
 
 /**
