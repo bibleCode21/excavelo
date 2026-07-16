@@ -40,15 +40,21 @@ outcome.
 
 ## Completed
 
-One `###` subsection per work stream (feature, fix, etc. — name them by what
-they achieve, not by branch or commit). Under each, tight bullets: what was
-done and what it enables. Merge commit chains ("fix, fix again, really fix")
-into their final result.
+Work that has LANDED — the GIT LOG's `--- landed <date>` sections, which are
+the changes that reached the default branch and shipped. One `###` subsection
+per work stream (feature, fix, etc. — name them by what they achieve, not by
+branch or commit). Under each, tight bullets: what was done and what it
+enables. Merge commit chains ("fix, fix again, really fix") into their final
+result.
 
 ## In progress / carried over
 
-Work visible in the log or memo that is not finished. One bullet each with
-current state.
+Work that has not landed: the GIT LOG's `--- not yet on <base>` sections, plus
+anything the memo describes as unfinished. One bullet each with current state.
+
+Never report the same work here and under Completed. If it appears in both — a
+branch's commits can still show as unlanded after their content shipped
+squashed into one commit — it shipped: put it under Completed only.
 
 ## Issues and decisions
 

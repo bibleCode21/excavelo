@@ -99,25 +99,43 @@ body, and a diffstat (no full diffs). Prompt rules tell the model to treat
 the log as ground truth and to group work by intent, not commit-by-commit.
 `work-report.md` is built for this input.
 
+Work is sourced from the repository's **default branch**, because that is
+where work counts as done. Each entry on its first-parent history is one
+*landing* and gets a section:
+
+```
+--- landed <YYYY-MM-DD> branch: <name>   a merge, expanded to the commits it brought in
+--- landed <YYYY-MM-DD> merge: <subject> a merge whose subject names no branch
+--- landed <YYYY-MM-DD> direct           a single commit: direct, squashed, or rebased
+--- not yet on <base> branch: <name>     a selected branch whose work has not landed
+```
+
+The date on a landing header is the day the work reached the default branch,
+not the day it was written, and `since:`/`until:` bound that same date. Merge,
+squash, and rebase workflows all work without configuration: a merge has two
+or more parents and expands; anything else *is* its own landing. Commits that
+live only on a branch that has not landed are reported under `not yet on` and
+are never counted as shipped.
+
 Branch selection is automatic: when the memo body contains branch names —
-typically lines pasted straight from git, `branch-name  subject` — every
-pasted name that exists in a listed repository gets its own
-`--- branch: <name>` section, with commits already on the default branch
-(`origin/HEAD`) subtracted so a section holds that branch's own work. Only
-names that really exist as branches count, so file paths or URLs in the memo
-cannot mismatch. Pasted branches are an explicit selection: no date window
-applies unless the spec sets `since:`/`until:`. A repository with no pasted
-branches contributes a plain log of its checked-out branch (default window:
-last 7 days). `branches:<glob>` (e.g. `branches:feature/2026/*`, `*` crosses
-`/`) instead scans every matching branch within the window — useful without
-a pasted list. Only local state is read — `git fetch` first if the branches
-live on a remote.
+typically lines pasted straight from git, `branch-name  subject` — the
+landings carrying those names are the ones emitted. Only a merge landing
+carries a branch name, so name selection narrows the log in merge-commit
+repositories; in squash and rebase repositories no landing has a name to match
+and the whole window is emitted instead (the templates still filter it against
+the memo's work list). A nameless landing is never dropped for lacking a name.
+Pasted branches are an explicit selection: no date window applies unless the
+spec sets `since:`/`until:`. A repository where no pasted name matches keeps
+the plain no-selection behavior, 7-day window included. `branches:<glob>`
+(e.g. `branches:feature/2026/*`, `*` crosses `/`) selects the same way against
+a glob. Only local state is read — `git fetch` first if the branches live on a
+remote.
 
 When the memo carries a work list — pasted branch lines, issue titles, or
 ticket ids — prompt rules make it a pure filter: an entry with no matching
 commits produces no output (never a fabricated one), a ticket id shared
 between an issue and a branch name is the strongest match signal, and a
-pasted branch name selects exactly that branch's commits.
+pasted branch name selects the landing that carries it.
 
 ## Starter templates
 

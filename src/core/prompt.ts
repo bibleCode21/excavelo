@@ -60,6 +60,8 @@ export function buildPrompt(ctx: TransformContext): PromptInput {
   if (ctx.gitLog && ctx.gitLog.trim()) {
     rules.push(
       "The GIT LOG is the factual record of code changes in the named repositories. Treat commit messages and diffstats as ground truth for what was done; do not invent work that is not in the log or the memo.",
+      "The GIT LOG groups commits into sections. A '--- landed <date>' section is work that reached the repository's default branch: it shipped, and the date on that header is when it shipped. A '--- not yet on <base>' section is work that has not landed and has not shipped.",
+      "A landed section is the shipped record and wins: when the same work appears in both a landed and a not-yet-landed section, report it as shipped and never also as in progress.",
       "Group and describe the work by intent (feature, fix, refactor), not commit-by-commit; merge related commits into one line of substance.",
       "When the TASK selects work from the GIT LOG using items in the raw memo (such as an issue list), those memo items are selection criteria, not content to preserve: an item with no matching work in the log produces no entry, and must never be given an invented date or description. For such items this overrides the completeness rule above.",
       "Match memo items to commits by what the commits actually say. Do not reinterpret or reframe a commit to force a match; when a commit matches no item as written, leave it out."

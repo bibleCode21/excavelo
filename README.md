@@ -88,10 +88,25 @@ transform (desktop only):
 ```
 
 One path per line; optional `since:` / `until:` (ISO dates, `today`, `7d`).
+
+**Work counts as done when it lands on the default branch**, never when it is
+merely committed on a branch. ExcaVelo walks the default branch and reports
+what arrived there, one section per landing — dated by the day it landed, not
+the day it was written. Commits sitting on a branch that has not landed are
+labelled as such and are never written up as shipped. Merge, squash, and
+rebase workflows all work; nothing needs configuring.
+
 If you paste branch lines (`branch-name  subject`, straight from git output)
-into the memo, ExcaVelo looks those branches up in the listed repositories
-and feeds exactly their commits — ideal for one-branch-per-issue teams. The
-`work-report` and `work-log` templates are built for this input.
+into the memo, ExcaVelo reports exactly the landings carrying those branch
+names — ideal for one-branch-per-issue teams. The `work-report` and `work-log`
+templates are built for this input.
+
+Branch names only survive into history when a team merges with merge commits.
+Where they don't — squash and rebase workflows — landings are still reported,
+but two things get worse: pasted names can't narrow the log, and past 50
+landings in a window the oldest are dropped without regard to what you asked
+for, so a busy repository can lose work you selected. Narrow the window with
+`since:` if you work that way.
 
 ## Templates
 
