@@ -1,7 +1,6 @@
 ---
-status: confirmed
+status: draft
 ceremony: standard
-approved-commit: a7969c591d068ef27ca395ad83a5e818cdba6d49
 ---
 # `[!git]`: source commits from the default branch, not from branch tips
 
@@ -60,7 +59,7 @@ This is closed at the prompt layer rather than the git layer, because git cannot
 
 ### Selection
 
-**Name filtering applies only to landings that have a name.** A nameless landing — every `direct` landing, which is to say every squash, rebase, and direct-to-base commit — is emitted regardless of selection. Only a merge landing carries a branch name (`branch: parentList.length >= 2 ? parseMergeBranchName(subject) : null`, `git-log.ts:358`), so filtering nameless landings by name would drop them unconditionally: their name never matches because they have none. That is the single rule that keeps SC3 and SC4 true in every mode, and it is what gives the landed-wins rule below something to win with.
+**Name filtering applies only to landings that have a name.** A nameless landing — every `direct` landing, which is to say every squash, rebase, and direct-to-base commit — is emitted regardless of selection. Only a merge landing carries a branch name (`branch: parentList.length >= 2 ? parseMergeBranchName(subject) : null` in `git-log.ts`), so filtering nameless landings by name would drop them unconditionally: their name never matches because they have none. That is the single rule that keeps SC3 and SC4 true in every mode, and it is what gives the landed-wins rule below something to win with.
 
 - **Pasted branch names** in the memo select which *named* landings are emitted: a merge landing whose parsed branch name matches a pasted name. A pasted branch that matches no landing and has unlanded work (per the two conditions above) contributes a not-yet-landed section. When no pasted name matches anything in a repository — neither a landing nor a branch ref — that repository falls through to the no-selection behavior below, as it does today (`git-log.ts:367`).
 - **`branches:<glob>`** filters the same way: named landings by the glob, nameless landings always emitted, not-yet-landed sections for matching branches with unlanded work.
@@ -97,7 +96,7 @@ Why accepted rather than closed: git does not retain the branch name of a squash
 
 `MAX_BRANCHES` (50) caps **each** section kind independently: at most 50 landings and at most 50 not-yet-landed branches per repository, each with its own over-cap notice (the existing notice at `git-log.ts:287-291`, reworded and emitted twice). The branch-side cap is today's `branches.slice(0, MAX_BRANCHES)` (`git-log.ts:264`) kept in place.
 
-**Cap order is most-recent-landing first**, matching the existing branch-side order (`--sort=-committerdate`, `git-log.ts:186`) — the first-parent walk already yields this order, so the cap is a `slice`, not a re-sort. **The cap applies after name filtering** (see Selection): in a merge-commit repository selection narrows to the pasted branches' landings first, so the cap bites only past 50 *selected* landings, exactly as today's path does (`git-log.ts:357-360`). Where selection cannot narrow — squash and rebase repositories — the cap is what evicts, and that is the accepted failure mode named in Selection. `MAX_COMMITS` (200) and `GIT_TIMEOUT_MS` keep their meaning, applied per `git log` invocation via the preserved `logArgs`.
+**Cap order is most-recent-landing first**, matching the existing branch-side order (`--sort=-committerdate`, in `enumerateBranches`) — the first-parent walk already yields this order, so the cap is a `slice`, not a re-sort. **The cap applies after name filtering** (see Selection): in a merge-commit repository selection narrows to the pasted branches' landings first, so the cap bites only past 50 *selected* landings, exactly as today's path does (the `selected` computation in `loadGitLog`). Where selection cannot narrow — squash and rebase repositories — the cap is what evicts, and that is the accepted failure mode named in Selection. `MAX_COMMITS` (200) and `GIT_TIMEOUT_MS` keep their meaning, applied per `git log` invocation via the preserved `logArgs`.
 
 Costs this contract accepts, stated rather than assumed away: git invocations roughly double (one first-parent walk, plus one expansion per merge landing, plus one query per selected branch), each carrying its own 30s `GIT_TIMEOUT_MS` rather than sharing a budget; `--cherry-pick` adds patch-id computation the current query does not do; and the emitted worst case grows from today's 50 sections to 100 (50 landings + 50 not-yet-landed), each up to `MAX_COMMITS` commits with diffstats. In a squash or rebase repository, selection cannot narrow (see Selection), so the landed side runs at its cap far more often than today.
 
