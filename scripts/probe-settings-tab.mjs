@@ -152,7 +152,7 @@ function loadModule() {
     `export { ExcaveloSettingTab } from ${JSON.stringify(
       path.join(repoRoot, "src/settings/settings-tab")
     )};\n` +
-      `export { noticeLog, __setRequestUrlHandler, createdSettings, __resetCreatedSettings } from "obsidian";\n` +
+      `export { Setting, noticeLog, __setRequestUrlHandler, createdSettings, __resetCreatedSettings } from "obsidian";\n` +
       `export { t } from ${JSON.stringify(path.join(repoRoot, "src/i18n"))};\n`
   );
   esbuild.buildSync({
