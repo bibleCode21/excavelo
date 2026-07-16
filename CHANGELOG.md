@@ -7,6 +7,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [1.4.3] - 2026-07-17
+
 ### Fixed
 
 - **`[!git]` reported the wrong half of your work.** Commits were sourced from branch tips with the default branch's history subtracted, which selects only what has *not* been merged: a branch that landed contributed nothing at all (its section vanished), while unfinished branches filled the work log. Work is now sourced from what actually landed on the default branch, so a work log records what shipped. Merge, squash, and rebase workflows all work without configuration — each entry on the default branch's first-parent history is one landing, and a merge expands to the commits it brought in.
