@@ -233,6 +233,44 @@ function buildManyLandingsFixture(count) {
 }
 
 /**
+ * Round 2 fixture: more than MAX_BRANCHES never-merged branches, plus main's
+ * own tip bumped to the most recent committer date of all — the shape that
+ * catches the `considered` filter regression. Before the fix, `base` was
+ * excluded from the not-yet-landed candidates only inside the per-branch loop
+ * (after the cap slice), so when a selection also matches the base ref (a
+ * bare `*` glob does), the base wastes a slot in `considered.slice(0,
+ * MAX_BRANCHES)` ahead of the real branches, evicting one more real branch
+ * than the cap alone would. Built with commit-tree, same as
+ * buildManyLandingsFixture — none of these branches are merged.
+ */
+function buildManyUnlandedBranchesFixture(count) {
+  const repo = path.join(tmp, "manyUnlanded");
+  fs.mkdirSync(repo);
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  const git = makeGit(repo);
+  fs.writeFileSync(path.join(repo, "README"), "base\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", "base"], at("2024-01-01T12:00:00Z"));
+  const base = git(["rev-parse", "main"]).trim();
+  const tree = git(["rev-parse", "main^{tree}"]).trim();
+
+  for (let i = 1; i <= count; i++) {
+    const env = at(new Date(Date.UTC(2024, 0, 1, 12) + i * 86_400_000).toISOString());
+    const tip = git(["commit-tree", tree, "-p", base, "-m", `work on feature/u${i}`], env).trim();
+    git(["branch", `feature/u${i}`, tip]);
+  }
+
+  // main's tip lands after every branch's commit, so main out-ranks all of
+  // them by committer date — the worst case for the regression.
+  const mainEnv = at(new Date(Date.UTC(2024, 0, 1, 12) + (count + 1) * 86_400_000).toISOString());
+  fs.writeFileSync(path.join(repo, "later.txt"), "later\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", "later main work"], mainEnv);
+
+  return repo;
+}
+
+/**
  * A12's fixture: one landing old enough that only an unbounded walk reaches it,
  * and one recent enough that the 7-day default does.
  *
@@ -699,6 +737,43 @@ check("A11 — a pasted branch's landing survives even when the cap would evict 
 check("A11 — and the unselected landings are filtered out", () => {
   assert.equal(landedSections(manyOut).length, 1);
   assert.ok(!manyOut.includes("feature/n55"), "an unselected landing was emitted");
+});
+
+/**
+ * Round 2 regression: `loadNotLandedSections` must exclude the base ref from
+ * `considered` *before* slicing to MAX_BRANCHES, not after (git-log.ts:432).
+ * A `branches:*` glob selects every branch, main included, so main competes
+ * for a cap slot unless it is filtered out up front. This does not follow
+ * from any of A1-A15 — none of them puts more than MAX_BRANCHES branches in
+ * play on the not-yet-landed side — so it had no coverage before this probe.
+ */
+console.log("not-yet-landed cap excludes the base ref before slicing (Round 2 fix)");
+
+const manyUnlanded = buildManyUnlandedBranchesFixture(MAX_BRANCHES + 1);
+const unlandedOut = await loadGitLog([`${manyUnlanded} since:2024-01-01 branches:*`]);
+
+check("base ref never gets its own not-yet-landed section", () => {
+  assert.ok(
+    !unlandedOut.includes("--- not yet on main branch: main"),
+    "the base ref was reported as its own unlanded branch"
+  );
+});
+
+check("the over-cap notice counts real unlanded branches, not the base ref", () => {
+  assert.ok(
+    unlandedOut.includes(`of ${MAX_BRANCHES + 1} unlanded branches were scanned`),
+    `expected the notice to count ${MAX_BRANCHES + 1} real branches; got: ${unlandedOut.slice(unlandedOut.indexOf("(only"))}`
+  );
+});
+
+check("base ref does not waste a cap slot ahead of a real branch", () => {
+  // 51 real branches over a cap of 50 evicts exactly one (the oldest,
+  // feature/u1) when base is excluded first. If base instead occupies a
+  // slot, feature/u2 is evicted too — that second eviction is the bug.
+  assert.ok(
+    hasSubject(unlandedOut, "work on feature/u2"),
+    "feature/u2 was evicted — the base ref must be excluded before the cap slice, not after"
+  );
 });
 
 /**
