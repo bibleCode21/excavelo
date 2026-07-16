@@ -1,5 +1,5 @@
 ---
-status: draft
+status: confirmed
 ceremony: standard
 ---
 # `[!git]`: source commits from the default branch, not from branch tips
