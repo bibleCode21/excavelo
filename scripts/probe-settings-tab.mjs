@@ -364,6 +364,16 @@ for (const authMethod of AUTH_METHODS) {
         assert.equal(dropdownRow, modelLoaded, "model picker control kind does not match modelLists state");
       });
 
+      check(`${label} — shared model picker desc reflects load state (Preservation item 5)`, () => {
+        if (authMethod === "claude-code-cli") return;
+        const row = rows.find((r) => r.name === t("settings.api-model.name"));
+        assert.ok(row, "api-model row missing");
+        const expectedDesc = modelLoaded
+          ? t("settings.api-model.desc-loaded", { count: 2 })
+          : t("settings.api-model.desc-text");
+        assert.equal(row.desc, expectedDesc, "api-model desc must reflect current load state");
+      });
+
       check(`${label} — Test Connection button has no visible label, only a CTA button`, () => {
         const testRow = rows.find((r) => {
           const b = ctrl(r, "button");
@@ -518,6 +528,382 @@ await checkAsync("Test connection: a thrown error is caught and shown as the fai
   const btn = rawRow((r) => ctrl(r, "button")?.buttonText === t("settings.test-connection.button"));
   await ctrl(btn, "button").onClickFn();
   assert.equal(noticeLog.at(-1), t("settings.test-connection.fail", { detail: "network down" }));
+});
+
+// ---------------------------------------------------------------------------
+// Recall pass (test-author, Trigger 2) — closing gaps the original
+// characterization pass left uncovered against the confirmed contract
+// (docs/specs/settings-tab-declarative-definitions.md). These are spec
+// assertions against the confirmed contract, not characterization of an
+// unverified prior state, so they are written and run against migrated code
+// only.
+// ---------------------------------------------------------------------------
+
+check("display() is removed from the class entirely (SC2)", () => {
+  assert.equal(
+    typeof ExcaveloSettingTab.prototype.display,
+    "undefined",
+    "ExcaveloSettingTab must not define its own display() (Obsidian bypasses it once getSettingDefinitions() is non-empty)"
+  );
+});
+
+function cloneSettings(plugin) {
+  return JSON.parse(JSON.stringify(plugin.settings));
+}
+function readPath(obj, path) {
+  return path.reduce((o, k) => o[k], obj);
+}
+// I1 — no cross-field coupling: everything in plugin.settings other than the
+// given path must be byte-identical before/after a handler runs.
+function assertOnlyPathChanged(before, after, path) {
+  const expected = JSON.parse(JSON.stringify(before));
+  let cursor = expected;
+  for (let i = 0; i < path.length - 1; i++) cursor = cursor[path[i]];
+  cursor[path[path.length - 1]] = readPath(after, path);
+  assert.deepEqual(
+    after,
+    expected,
+    `unexpected mutation outside plugin.settings.${path.join(".")} (I1 — no cross-field coupling)`
+  );
+}
+
+// --- SC5 / Preservation contract: row name/desc text preserved -----------
+
+{
+  const plugin = makeFakePlugin();
+  const tab = new ExcaveloSettingTab({}, plugin);
+  const rows = renderTab(tab);
+
+  const expectedNameDesc = [
+    ["settings.language.name", "settings.language.desc"],
+    ["settings.auth-method.name", "settings.auth-method.desc"],
+    ["settings.cli.binary.name", "settings.cli.binary.desc"],
+    ["settings.cli.model.name", "settings.cli.model.desc"],
+    ["settings.cli.timeout.name", "settings.cli.timeout.desc"],
+    ["settings.default-context.name", "settings.default-context.desc"],
+    ["settings.restore-starter.name", "settings.restore-starter.desc"],
+    ["settings.update-starter.name", "settings.update-starter.desc"],
+    ["settings.status-bar.name", "settings.status-bar.desc"],
+    ["settings.show-cost.name", "settings.show-cost.desc"],
+    ["settings.api-model.name", null],
+  ];
+  for (const [nameKey, descKey] of expectedNameDesc) {
+    check(`row name/desc preserved — ${nameKey} (SC5)`, () => {
+      const row = findRow(rows, (r) => r.name === t(nameKey));
+      if (descKey) assert.equal(row.desc, t(descKey), `desc mismatch for ${nameKey}`);
+    });
+  }
+
+  check("section headings preserved (Preservation items 3/7/8/10)", () => {
+    for (const key of [
+      "settings.connection.header",
+      "settings.context.header",
+      "settings.templates.header",
+      "settings.ui.header",
+    ]) {
+      assert.ok(rows.some((r) => r.heading && r.name === t(key)), `heading missing: ${key}`);
+    }
+  });
+
+  check("default-context textarea keeps rows=6 (Preservation item 7)", () => {
+    const row = rawRow((r) => ctrl(r, "textarea"));
+    assert.equal(ctrl(row, "textarea").inputEl.rows, 6);
+  });
+
+  check("CLI custom-model row name/desc preserved while rendered (SC5)", () => {
+    tab.cliModelCustom = true;
+    const customRows = renderTab(tab);
+    const row = findRow(customRows, (r) => r.name === t("settings.cli.custom-model.name"));
+    assert.equal(row.desc, t("settings.cli.custom-model.desc"));
+  });
+}
+
+{
+  const plugin = makeFakePlugin({ authMethod: "anthropic-api" });
+  const tab = new ExcaveloSettingTab({}, plugin);
+  const rows = renderTab(tab);
+  check(
+    "anthropic API key row name/desc preserved and is a password field (SC5, Preservation item 4)",
+    () => {
+      const row = findRow(rows, (r) => r.name === t("settings.anthropic.key.name"));
+      assert.equal(row.desc, t("settings.anthropic.key.desc"));
+      const liveRow = rawRow((r) => r.name === t("settings.anthropic.key.name"));
+      assert.equal(ctrl(liveRow, "text").inputEl.type, "password");
+    }
+  );
+}
+
+// --- I2 — getSettingDefinitions() itself never mutates plugin.settings ---
+
+check("getSettingDefinitions()/render() alone never mutates settings or calls saveSettings (I2)", () => {
+  const plugin = makeFakePlugin({ authMethod: "anthropic-api" });
+  const tab = new ExcaveloSettingTab({}, plugin);
+  const before = cloneSettings(plugin);
+  renderTab(tab);
+  renderTab(tab);
+  tab.cliModelCustom = true;
+  renderTab(tab);
+  assert.deepEqual(plugin.settings, before, "rendering alone must not mutate plugin.settings");
+  assert.equal(plugin.__probe.saveSettingsCalls.length, 0, "rendering alone must not call saveSettings");
+});
+
+// --- I3 — modelLists/cliModelCustom never touch plugin.settings ----------
+
+check("modelLists and cliModelCustom are never present on plugin.settings (I3)", () => {
+  const plugin = makeFakePlugin({ authMethod: "anthropic-api" });
+  const tab = new ExcaveloSettingTab({}, plugin);
+  tab.cliModelCustom = true;
+  tab.modelLists = { anthropic: ["m1"] };
+  renderTab(tab);
+  assert.equal(plugin.settings.modelLists, undefined);
+  assert.equal(plugin.settings.cliModelCustom, undefined);
+  assert.deepEqual(Object.keys(plugin.settings).sort(), Object.keys(defaultSettings()).sort());
+});
+
+// --- Untested onChange write-paths (Preservation item 12) -----------------
+
+await checkAsync("CLI binary path text onChange writes settings.claudeCodeCli.binaryPath", async () => {
+  const plugin = makeFakePlugin({ authMethod: "claude-code-cli" });
+  const tab = new ExcaveloSettingTab({}, plugin);
+  renderTab(tab);
+  let updateCalls = 0;
+  tab.update = () => {
+    updateCalls += 1;
+  };
+  const row = rawRow((r) => ctrl(r, "text")?.placeholder === t("settings.cli.binary.placeholder"));
+  const before = cloneSettings(plugin);
+  await ctrl(row, "text").onChangeFn("/usr/local/bin/claude");
+  assert.equal(plugin.settings.claudeCodeCli.binaryPath, "/usr/local/bin/claude");
+  assert.equal(plugin.__probe.saveSettingsCalls.length, 1);
+  assert.equal(updateCalls, 0, "binaryPath change is not one of the 4 update() call sites (SC3)");
+  assertOnlyPathChanged(before, plugin.settings, ["claudeCodeCli", "binaryPath"]);
+});
+
+await checkAsync(
+  "CLI model dropdown: selecting a concrete alias writes settings, clears custom mode, calls this.update()",
+  async () => {
+    const plugin = makeFakePlugin({ authMethod: "claude-code-cli" });
+    const tab = new ExcaveloSettingTab({}, plugin);
+    tab.cliModelCustom = true;
+    renderTab(tab);
+    let updateCalls = 0;
+    tab.update = () => {
+      updateCalls += 1;
+    };
+    const row = rawRow((r) => ctrl(r, "dropdown")?.options?.some((o) => o.value === "opus"));
+    const before = cloneSettings(plugin);
+    await ctrl(row, "dropdown").onChangeFn("opus");
+    assert.equal(plugin.settings.claudeCodeCli.model, "opus");
+    assert.equal(tab.cliModelCustom, false, "custom mode must clear when a concrete alias is chosen");
+    assert.equal(plugin.__probe.saveSettingsCalls.length, 1);
+    assert.equal(updateCalls, 1, "must call this.update() (SC3)");
+    assertOnlyPathChanged(before, plugin.settings, ["claudeCodeCli", "model"]);
+  }
+);
+
+await checkAsync(
+  "CLI model dropdown: selecting __custom__ enters custom mode without writing settings",
+  async () => {
+    const plugin = makeFakePlugin({ authMethod: "claude-code-cli" });
+    const tab = new ExcaveloSettingTab({}, plugin);
+    renderTab(tab);
+    let updateCalls = 0;
+    tab.update = () => {
+      updateCalls += 1;
+    };
+    const row = rawRow((r) => ctrl(r, "dropdown")?.options?.some((o) => o.value === "__custom__"));
+    const before = cloneSettings(plugin);
+    await ctrl(row, "dropdown").onChangeFn("__custom__");
+    assert.equal(tab.cliModelCustom, true);
+    assert.deepEqual(plugin.settings, before, "selecting __custom__ must not write plugin.settings");
+    assert.equal(plugin.__probe.saveSettingsCalls.length, 0, "selecting __custom__ must not call saveSettings");
+    assert.equal(updateCalls, 1, "must still call this.update() (SC3)");
+  }
+);
+
+await checkAsync("CLI custom-model text onChange trims and writes settings.claudeCodeCli.model", async () => {
+  const plugin = makeFakePlugin({ authMethod: "claude-code-cli" });
+  const tab = new ExcaveloSettingTab({}, plugin);
+  tab.cliModelCustom = true;
+  renderTab(tab);
+  const row = rawRow((r) => ctrl(r, "text")?.placeholder === "claude-sonnet-4-6");
+  const before = cloneSettings(plugin);
+  await ctrl(row, "text").onChangeFn("  my-custom-model  ");
+  assert.equal(plugin.settings.claudeCodeCli.model, "my-custom-model", "input must be trimmed");
+  assert.equal(plugin.__probe.saveSettingsCalls.length, 1);
+  assertOnlyPathChanged(before, plugin.settings, ["claudeCodeCli", "model"]);
+});
+
+await checkAsync(
+  "CLI permission-mode dropdown renders default/bypassPermissions; onChange writes settings",
+  async () => {
+    const plugin = makeFakePlugin({ authMethod: "claude-code-cli" });
+    const tab = new ExcaveloSettingTab({}, plugin);
+    const rows = renderTab(tab);
+    const row = findRow(rows, (r) => r.name === t("settings.cli.permission.name"));
+    assert.equal(row.desc, t("settings.cli.permission.desc"));
+    assert.deepEqual(
+      ctrl(row, "dropdown").options.map((o) => o.value),
+      ["default", "bypassPermissions"]
+    );
+
+    let updateCalls = 0;
+    tab.update = () => {
+      updateCalls += 1;
+    };
+    const liveRow = rawRow((r) => r.name === t("settings.cli.permission.name"));
+    const before = cloneSettings(plugin);
+    await ctrl(liveRow, "dropdown").onChangeFn("bypassPermissions");
+    assert.equal(plugin.settings.claudeCodeCli.permissionMode, "bypassPermissions");
+    assert.equal(plugin.__probe.saveSettingsCalls.length, 1);
+    assert.equal(updateCalls, 0, "permission-mode change is not one of the 4 update() call sites (SC3)");
+    assertOnlyPathChanged(before, plugin.settings, ["claudeCodeCli", "permissionMode"]);
+  }
+);
+
+await checkAsync("Anthropic API key text onChange writes settings.anthropicApi.apiKey", async () => {
+  const plugin = makeFakePlugin({ authMethod: "anthropic-api" });
+  const tab = new ExcaveloSettingTab({}, plugin);
+  renderTab(tab);
+  const row = rawRow((r) => ctrl(r, "text")?.placeholder === "sk-ant-...");
+  const before = cloneSettings(plugin);
+  await ctrl(row, "text").onChangeFn("sk-ant-abc123");
+  assert.equal(plugin.settings.anthropicApi.apiKey, "sk-ant-abc123");
+  assert.equal(plugin.__probe.saveSettingsCalls.length, 1);
+  assertOnlyPathChanged(before, plugin.settings, ["anthropicApi", "apiKey"]);
+});
+
+await checkAsync("OpenAI-compat base URL text onChange writes settings.openAiCompat.baseUrl", async () => {
+  const plugin = makeFakePlugin({ authMethod: "openai-compat" });
+  const tab = new ExcaveloSettingTab({}, plugin);
+  const rows = renderTab(tab);
+  const row = findRow(rows, (r) => r.name === t("settings.openai.baseurl.name"));
+  assert.equal(row.desc, t("settings.openai.baseurl.desc"));
+  const liveRow = rawRow((r) => r.name === t("settings.openai.baseurl.name"));
+  const before = cloneSettings(plugin);
+  await ctrl(liveRow, "text").onChangeFn("http://localhost:9999");
+  assert.equal(plugin.settings.openAiCompat.baseUrl, "http://localhost:9999");
+  assert.equal(plugin.__probe.saveSettingsCalls.length, 1);
+  assertOnlyPathChanged(before, plugin.settings, ["openAiCompat", "baseUrl"]);
+});
+
+await checkAsync("OpenAI-compat API key text onChange writes settings.openAiCompat.apiKey", async () => {
+  const plugin = makeFakePlugin({ authMethod: "openai-compat" });
+  const tab = new ExcaveloSettingTab({}, plugin);
+  const rows = renderTab(tab);
+  const row = findRow(rows, (r) => r.name === t("settings.openai.key.name"));
+  assert.equal(row.desc, t("settings.openai.key.desc"));
+  const liveRow = rawRow((r) => r.name === t("settings.openai.key.name"));
+  assert.equal(ctrl(liveRow, "text").inputEl.type, "password");
+  const before = cloneSettings(plugin);
+  await ctrl(liveRow, "text").onChangeFn("secret-key");
+  assert.equal(plugin.settings.openAiCompat.apiKey, "secret-key");
+  assert.equal(plugin.__probe.saveSettingsCalls.length, 1);
+  assertOnlyPathChanged(before, plugin.settings, ["openAiCompat", "apiKey"]);
+});
+
+await checkAsync("templates-folder text onChange writes settings.templatesFolder", async () => {
+  const plugin = makeFakePlugin();
+  const tab = new ExcaveloSettingTab({}, plugin);
+  const rows = renderTab(tab);
+  const row = findRow(rows, (r) => r.name === t("settings.templates-folder.name"));
+  assert.equal(row.desc, t("settings.templates-folder.desc"));
+  const liveRow = rawRow((r) => r.name === t("settings.templates-folder.name"));
+  const before = cloneSettings(plugin);
+  await ctrl(liveRow, "text").onChangeFn("Templates/");
+  assert.equal(plugin.settings.templatesFolder, "Templates/");
+  assert.equal(plugin.__probe.saveSettingsCalls.length, 1);
+  assertOnlyPathChanged(before, plugin.settings, ["templatesFolder"]);
+});
+
+await checkAsync("default-template text onChange writes settings.defaultTemplate", async () => {
+  const plugin = makeFakePlugin();
+  const tab = new ExcaveloSettingTab({}, plugin);
+  const rows = renderTab(tab);
+  const row = findRow(rows, (r) => r.name === t("settings.default-template.name"));
+  assert.equal(row.desc, t("settings.default-template.desc"));
+  const liveRow = rawRow((r) => r.name === t("settings.default-template.name"));
+  const before = cloneSettings(plugin);
+  await ctrl(liveRow, "text").onChangeFn("MyTemplate.md");
+  assert.equal(plugin.settings.defaultTemplate, "MyTemplate.md");
+  assert.equal(plugin.__probe.saveSettingsCalls.length, 1);
+  assertOnlyPathChanged(before, plugin.settings, ["defaultTemplate"]);
+});
+
+await checkAsync("shared model picker text-field onChange writes the model (anthropic), trimmed", async () => {
+  const plugin = makeFakePlugin({ authMethod: "anthropic-api" });
+  const tab = new ExcaveloSettingTab({}, plugin);
+  renderTab(tab);
+  const row = rawRow((r) => r.name === t("settings.api-model.name"));
+  const before = cloneSettings(plugin);
+  await ctrl(row, "text").onChangeFn("  claude-custom  ");
+  assert.equal(plugin.settings.anthropicApi.model, "claude-custom", "input must be trimmed");
+  assert.equal(plugin.__probe.saveSettingsCalls.length, 1);
+  assertOnlyPathChanged(before, plugin.settings, ["anthropicApi", "model"]);
+});
+
+await checkAsync(
+  "shared model picker dropdown onChange writes the model (openai-compat), untrimmed",
+  async () => {
+    const plugin = makeFakePlugin({ authMethod: "openai-compat" });
+    const tab = new ExcaveloSettingTab({}, plugin);
+    tab.modelLists = { openai: ["gpt-a", "gpt-b"] };
+    renderTab(tab);
+    const row = rawRow((r) => ctrl(r, "dropdown")?.options?.some((o) => o.value === "gpt-b"));
+    const before = cloneSettings(plugin);
+    await ctrl(row, "dropdown").onChangeFn("gpt-b");
+    assert.equal(plugin.settings.openAiCompat.model, "gpt-b");
+    assert.equal(plugin.__probe.saveSettingsCalls.length, 1);
+    assertOnlyPathChanged(before, plugin.settings, ["openAiCompat", "model"]);
+  }
+);
+
+// --- SC3 — the remaining update()-on-re-render call sites -----------------
+
+await checkAsync("language dropdown onChange calls this.update() (SC3)", async () => {
+  const plugin = makeFakePlugin();
+  const tab = new ExcaveloSettingTab({}, plugin);
+  renderTab(tab);
+  let updateCalls = 0;
+  tab.update = () => {
+    updateCalls += 1;
+  };
+  const row = rawRow((r) => ctrl(r, "dropdown")?.options?.some((o) => o.value === "ko"));
+  await ctrl(row, "dropdown").onChangeFn("ko");
+  assert.equal(updateCalls, 1);
+});
+
+await checkAsync("auth-method dropdown onChange calls this.update() (SC3)", async () => {
+  const plugin = makeFakePlugin();
+  const tab = new ExcaveloSettingTab({}, plugin);
+  renderTab(tab);
+  let updateCalls = 0;
+  tab.update = () => {
+    updateCalls += 1;
+  };
+  const row = rawRow((r) => ctrl(r, "dropdown")?.options?.some((o) => o.value === "openai-compat"));
+  await ctrl(row, "dropdown").onChangeFn("openai-compat");
+  assert.equal(updateCalls, 1);
+});
+
+await checkAsync("model-list load success calls this.update() (SC3)", async () => {
+  const plugin = makeFakePlugin({
+    authMethod: "anthropic-api",
+    anthropicApi: { apiKey: "sk-ant-test", model: "" },
+  });
+  const tab = new ExcaveloSettingTab({}, plugin);
+  renderTab(tab);
+  mod.__setRequestUrlHandler(async () => ({
+    status: 200,
+    text: JSON.stringify({ data: [{ id: "claude-x" }] }),
+  }));
+  let updateCalls = 0;
+  tab.update = () => {
+    updateCalls += 1;
+  };
+  const loadBtn = rawRow((r) => ctrl(r, "button")?.buttonText === t("settings.api-model.load"));
+  await ctrl(loadBtn, "button").onClickFn();
+  assert.equal(updateCalls, 1);
 });
 
 // ---------------------------------------------------------------------------
