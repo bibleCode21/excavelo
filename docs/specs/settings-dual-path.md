@@ -1,6 +1,7 @@
 ---
 status: confirmed
 ceremony: standard
+approved-commit: 1365658844e1976819614bf31f55456967d4630a
 ---
 # `ExcaveloSettingTab`: dual-path 렌더링 — display() 폴백 + minAppVersion 1.5.0 복귀
 
