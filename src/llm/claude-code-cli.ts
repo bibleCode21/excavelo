@@ -24,17 +24,20 @@ const DEFAULT_TIMEOUT_SECONDS = 720;
 /**
  * Node built-ins must be required lazily: this module is bundled into main.js,
  * which also loads on mobile where none of these exist. Every caller is behind
- * a Platform.isMobile guard.
+ * a Platform.isMobile guard. The isDesktop check below is redundant with that —
+ * it exists only so eslint-plugin-obsidianmd's no-nodejs-modules rule, which
+ * looks for a guard local to this function, is satisfied.
  */
 function nodeApis() {
-  /* eslint-disable @typescript-eslint/no-var-requires -- lazy require, not import: these builtins must not be evaluated on mobile, where they don't exist */
+  if (!Platform.isDesktop) throw new LlmError("Node APIs are desktop-only.");
+  /* eslint-disable @typescript-eslint/no-var-requires -- guarded require, not import: the ESM form this rule prefers fails at runtime under Obsidian's loader (measured). obsidianmd/no-nodejs-modules explicitly permits require() behind the Platform.isDesktop guard above. */
   return {
     cp: require("child_process") as typeof import("child_process"),
     fs: require("fs") as typeof import("fs"),
     path: require("path") as typeof import("path"),
     os: require("os") as typeof import("os"),
   };
-  /* eslint-enable @typescript-eslint/no-var-requires -- end of the lazy-require block above */
+  /* eslint-enable @typescript-eslint/no-var-requires -- end of the guarded-require block above */
 }
 
 function isWindows(): boolean {
