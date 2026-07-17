@@ -1,6 +1,7 @@
 ---
 status: confirmed
 ceremony: standard
+approved-commit: 7ddabf5e8fa6bf738a4e840b576f148219eeb304
 ---
 # `nodeApis()`: add a `Platform.isDesktop` guard, keep `require()`
 
