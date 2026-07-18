@@ -7,6 +7,18 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [1.4.5] - 2026-07-19
+
+### Fixed
+
+- Permission-mode dropdown (Default / Bypass permissions) in settings showed its raw internal value as the label instead of proper sentence-case text — now uses translated labels, matching every other dropdown in settings.
+
+### Changed
+
+- `eslint.config.mjs` now spreads eslint-plugin-obsidianmd's full `recommended` ruleset instead of hand-picking one rule, and moved off the pinned `@typescript-eslint` v7 packages onto the unified v8 `typescript-eslint` package — keeps local lint aligned with what the community-plugin review bot checks. No functional change.
+- Narrowed `templates.ts`'s frontmatter parsing types to the parser's actual return-value set instead of `unknown` — resolves static-analysis false positives from the review bot's typed lint rules. No functional change (the parser already never returned other value types).
+- Minor API-usage adjustments flagged by the review bot's ruleset (timer references, error-object wrapping, template-literal typing). No functional change.
+
 ## [1.4.4] - 2026-07-18
 
 ### Fixed
