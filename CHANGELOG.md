@@ -7,6 +7,16 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [1.4.4] - 2026-07-18
+
+### Fixed
+
+- **`minAppVersion` lowered back to 1.5.0.** 1.4.2 raised it to 1.13.0 to satisfy a lint rule, but the public release channel's latest version is 1.12.7 — 1.13.0 was never a shipped Obsidian release, so the community-plugin review flagged the plugin as installable only on a version nobody actually has, and users on the public channel lost the ability to install or update it. Settings now render on Obsidian versions below 1.13 through a `display()` fallback that interprets the same declarative definitions used on 1.13+, so 1.4.2's settings-search integration is preserved there while pre-1.13 users get a working settings screen back (it had been rendering blank since 1.4.2).
+
+### Changed
+
+- Node built-in access (`child_process` for the Claude Code CLI runner and `[!git]`) now carries an explicit `Platform.isDesktop` guard local to each call site, clearing `eslint-plugin-obsidianmd/no-nodejs-modules`. No functional change — every call site already sat behind an outer `Platform.isMobile` guard.
+
 ## [1.4.3] - 2026-07-17
 
 ### Fixed
