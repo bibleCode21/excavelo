@@ -16,9 +16,7 @@ export default [
       },
     },
     rules: {
-      "no-unused-vars": "off",
       "@typescript-eslint/no-unused-vars": ["error", { args: "none" }],
-      "@typescript-eslint/ban-ts-comment": "off",
       "no-prototype-builtins": "off",
       "@typescript-eslint/no-empty-function": "off",
     },
@@ -26,7 +24,10 @@ export default [
   {
     // Both files guard Node API access behind Platform.isDesktop; the
     // recommended config only registers browser globals, so require()/
-    // process/NodeJS read as no-undef here without this.
+    // process/NodeJS read as no-undef here without this. (Assumes
+    // manifest.json's isDesktopOnly stays false — recommended registers
+    // Node globals repo-wide on its own if that ever flips true, making
+    // this overlay redundant rather than wrong; re-check if it changes.)
     files: ["src/core/git-log.ts", "src/llm/claude-code-cli.ts"],
     languageOptions: {
       globals: {
