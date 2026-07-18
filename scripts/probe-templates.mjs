@@ -99,14 +99,20 @@ await checkAsync("number frontmatter value stringifies via String()", async () =
   assert.equal(t.name, "42");
 });
 
-await checkAsync("boolean/null frontmatter values stringify via String()", async () => {
+await checkAsync("falsy boolean/null frontmatter values take the fallback branch, not String()", async () => {
   // description_ko: false and model: null both take the falsy-fallback branch
   // (`frontmatter.X ? String(...) : undefined/null`), not the String(false) path —
-  // characterizing that branch choice, not just the truthy String() call.
+  // characterizing that branch choice, not the truthy String() call (see next check).
   const raw = "---\nname: t\ndescription_ko: false\nmodel: null\n---\n\nbody\n";
   const t = await registryFor(raw).parse(fakeFile);
   assert.equal(t.descriptionKo, undefined);
   assert.equal(t.model, null);
+});
+
+await checkAsync("a truthy boolean frontmatter value actually reaches String()", async () => {
+  const raw = "---\nname: t\nicon: true\n---\n\nbody\n";
+  const t = await registryFor(raw).parse(fakeFile);
+  assert.equal(t.icon, "true");
 });
 
 // --- 2. Block scalar (`key: |`, `key: |-`) parsing ---
@@ -121,6 +127,12 @@ await checkAsync("block scalar (|-) strips trailing newline", async () => {
   const raw = "---\nname: t\nnew_note_scaffold: |-\n  line one\n  line two\n---\n\nbody\n";
   const t = await registryFor(raw).parse(fakeFile);
   assert.equal(t.newNoteScaffold, "line one\nline two");
+});
+
+await checkAsync("block scalar preserves a blank line inside the block", async () => {
+  const raw = "---\nname: t\nnew_note_scaffold: |\n  line one\n\n  line two\n---\n\nbody\n";
+  const t = await registryFor(raw).parse(fakeFile);
+  assert.equal(t.newNoteScaffold, "line one\n\nline two");
 });
 
 // --- 3. No frontmatter ---

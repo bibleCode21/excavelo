@@ -141,8 +141,15 @@ export class TemplateRegistry {
   }
 }
 
+/**
+ * splitFrontmatter/parseYamlScalar are a naive scalar parser (see doc comment
+ * below) that never produces an object or array — this is the exact value set
+ * they can return, not a convenience narrowing.
+ */
+type FrontmatterScalar = string | number | boolean | null;
+
 interface FrontmatterParsed {
-  frontmatter: Record<string, unknown> | null;
+  frontmatter: Record<string, FrontmatterScalar> | null;
   body: string;
 }
 
@@ -158,7 +165,7 @@ function splitFrontmatter(raw: string): FrontmatterParsed {
   if (end < 0) return { frontmatter: null, body: raw };
   const yaml = raw.slice(4, end);
   const body = raw.slice(end + 4).replace(/^\r?\n/, "");
-  const frontmatter: Record<string, unknown> = {};
+  const frontmatter: Record<string, FrontmatterScalar> = {};
   const lines = yaml.split(/\r?\n/);
   let i = 0;
   while (i < lines.length) {
@@ -200,7 +207,7 @@ function splitFrontmatter(raw: string): FrontmatterParsed {
   return { frontmatter, body };
 }
 
-function parseYamlScalar(v: string): unknown {
+function parseYamlScalar(v: string): FrontmatterScalar {
   const trimmed = v.trim();
   if (trimmed === "" || trimmed === "null" || trimmed === "~") return null;
   if (trimmed === "true") return true;
