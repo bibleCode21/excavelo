@@ -1,6 +1,7 @@
 ---
 status: confirmed
 ceremony: trivial
+approved-commit: 7e5380add329e7a79bbb7a2943b2785d9dec08eb
 ---
 # WU-5 — sentence-case UI 텍스트 4건
 
