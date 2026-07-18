@@ -85,6 +85,8 @@ const en: Record<string, string> = {
   "settings.cli.custom-model.desc": "Full model id, e.g. claude-sonnet-4-6.",
   "settings.cli.permission.name": "Permission mode",
   "settings.cli.permission.desc": "bypassPermissions skips tool-use prompts; safe for pure text generation.",
+  "settings.cli.permission.option.default": "Default",
+  "settings.cli.permission.option.bypass": "Bypass permissions",
   "settings.cli.timeout.name": "Timeout (seconds)",
   "settings.cli.timeout.desc":
     "How long to wait for Claude Code before giving up. Raise this for long inputs — a 40-minute transcript can take several minutes, especially on opus.",
