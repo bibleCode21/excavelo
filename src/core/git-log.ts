@@ -103,7 +103,9 @@ export function branchCandidates(memoText: string): string[] {
  * Lazy require: this module is bundled into main.js, which also loads on mobile.
  * The isDesktop check below is redundant with loadGitLog's own isMobile guard —
  * it exists only so eslint-plugin-obsidianmd's no-nodejs-modules rule, which
- * looks for a guard local to this function, is satisfied.
+ * looks for a guard local to this function, is satisfied. isDesktopApp would be
+ * the semantically apt field (Node availability, not UI mode), but the rule
+ * string-matches "isDesktop" literally — do not "fix" this to isDesktopApp.
  */
 function nodeApis() {
   if (!Platform.isDesktop) throw new Error(t("git.desktop-only"));

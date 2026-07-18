@@ -26,7 +26,9 @@ const DEFAULT_TIMEOUT_SECONDS = 720;
  * which also loads on mobile where none of these exist. Every caller is behind
  * a Platform.isMobile guard. The isDesktop check below is redundant with that —
  * it exists only so eslint-plugin-obsidianmd's no-nodejs-modules rule, which
- * looks for a guard local to this function, is satisfied.
+ * looks for a guard local to this function, is satisfied. isDesktopApp would be
+ * the semantically apt field (Node availability, not UI mode), but the rule
+ * string-matches "isDesktop" literally — do not "fix" this to isDesktopApp.
  */
 function nodeApis() {
   if (!Platform.isDesktop) throw new LlmError("Node APIs are desktop-only.");
