@@ -100,8 +100,13 @@ export async function requestUrl(opts) {
 class FakeContainerEl {
   constructor() {
     this.classes = new Set();
+    this.emptyLog = [];
   }
-  empty() {}
+  empty() {
+    // Records how many Settings existed when empty() ran, so the probe can
+    // assert display() clears the container before rendering any rows.
+    this.emptyLog.push(createdSettings.length);
+  }
   addClass(...cs) {
     for (const c of cs) this.classes.add(c);
   }
@@ -263,9 +268,11 @@ function makeFakePlugin(settingsOverrides = {}) {
   return plugin;
 }
 
-// --- declarative-tree walker (simulates enough of Obsidian's renderer to
-// drive the recording Setting fake the same way for both pre- and
-// post-migration code) ---------------------------------------------------
+// --- declarative-tree walker — the probe's independent oracle of Obsidian's
+// ≥1.13 declarative renderer. Deliberately kept separate from production's
+// ExcaveloSettingTab.renderDefinitions(): the cross-path deepEqual below is
+// only meaningful while these two are independent implementations — do NOT
+// merge or share code with production (settings-dual-path §Spec). -----------
 
 function evalVisible(v) {
   return typeof v === "function" ? !!v() : v !== false;
@@ -296,10 +303,11 @@ function walkDefinitions(containerEl, items) {
 }
 
 /**
- * Renders the tab exactly once, dispatching the same way Obsidian itself
- * does: getSettingDefinitions() wins when non-empty, display() is the
- * fallback (obsidian.d.ts's own documented rule). This is what lets the
- * same assertions run unchanged before and after the migration.
+ * Renders the tab the way Obsidian ≥1.13 does: getSettingDefinitions() wins
+ * when non-empty (walked by the oracle above), display() would be the
+ * fallback (obsidian.d.ts's documented dispatch rule). This is the
+ * declarative leg of the dual-path matrix; renderFallback() below is the
+ * <1.13 leg.
  */
 function renderTab(tab) {
   mod.__resetCreatedSettings();
@@ -347,13 +355,18 @@ function renderFallback(tab) {
 
 // Version-branched fields (setDestructive on 1.13+ vs mod-warning below —
 // contract §Spec "setDestructive 가드") are asserted per-path in dedicated
-// checks; strip them before the cross-path deepEqual (Preservation 2's
-// explicit exception).
+// checks; strip them before the cross-path deepEqual, but ONLY on the
+// update-starter row — the sole site the contract branches on. Any other
+// row diverging in these fields must still fail the deepEqual.
 function stripVersionBranchedFields(rows) {
-  return rows?.map((r) => ({
-    ...r,
-    controls: r.controls.map(({ destructive, buttonElClasses, ...rest }) => rest),
-  }));
+  const updateStarterText = t("settings.update-starter.button");
+  return rows?.map((r) => {
+    if (!r.controls.some((c) => c.buttonText === updateStarterText)) return r;
+    return {
+      ...r,
+      controls: r.controls.map(({ destructive, buttonElClasses, ...rest }) => rest),
+    };
+  });
 }
 
 function findRow(rows, matcher) {
@@ -1024,12 +1037,18 @@ await checkAsync(
         updateCalls += 1;
       };
       const rowsBefore = mod.createdSettings.length;
+      const emptiesBefore = tab.containerEl.emptyLog.length;
       const row = rawRow((r) => ctrl(r, "dropdown")?.options?.some((o) => o.value === "openai-compat"));
       await ctrl(row, "dropdown").onChangeFn("openai-compat");
       assert.equal(updateCalls, 0, "below 1.13 the handler must not route through update()");
       assert.ok(
         mod.createdSettings.length > rowsBefore,
         "the handler must re-render through the display() fallback (new Setting rows created)"
+      );
+      assert.equal(
+        tab.containerEl.emptyLog.length,
+        emptiesBefore + 1,
+        "the fallback re-render must go through display() (which empties the container first), not a direct tree walk"
       );
     } finally {
       mod.__setApiVersionSupported(true);
@@ -1047,6 +1066,156 @@ check("update-starter button below 1.13 gets mod-warning class instead of setDes
     const btn = ctrl(row, "button");
     assert.equal(btn.destructive, false, "setDestructive() must not be called below 1.13");
     assert.ok(btn.buttonEl.classes.includes("mod-warning"), "fallback must add the mod-warning class");
+  } finally {
+    mod.__setApiVersionSupported(true);
+  }
+});
+
+// --- recall additions (test-author, per-commit leg) — remaining dual-path
+// surface gaps: manifest SC1; display() empties before rendering (§Spec
+// display() step 1); the three refresh() fallback sites not covered above
+// (language / CLI model / load-success — the contract's probe-revision floor
+// was one site, but §Spec "refresh() 헬퍼" swaps all four); mod-warning
+// absence on the 1.13+ path (Preservation 1); I2 on the fallback path. -------
+
+check("manifest minAppVersion is 1.5.0 (settings-dual-path SC1)", () => {
+  // `version` is deliberately not pinned — version-bump.mjs rewrites it at
+  // release; minAppVersion is the load-bearing value for the dual-path design.
+  const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, "manifest.json"), "utf8"));
+  assert.equal(manifest.minAppVersion, "1.5.0");
+});
+
+check("display() empties the container before creating any rows (§Spec display() step 1)", () => {
+  mod.__setApiVersionSupported(false);
+  try {
+    const plugin = makeFakePlugin();
+    const tab = new ExcaveloSettingTab({}, plugin);
+    renderFallback(tab);
+    assert.ok(tab.containerEl.emptyLog.length >= 1, "display() must call containerEl.empty()");
+    assert.equal(
+      tab.containerEl.emptyLog[0],
+      0,
+      "empty() must run before any Setting row is created (otherwise <1.13 re-renders duplicate the tab)"
+    );
+  } finally {
+    mod.__setApiVersionSupported(true);
+  }
+});
+
+check("update-starter button on 1.13+ keeps destructive styling without mod-warning (Preservation 1)", () => {
+  const plugin = makeFakePlugin();
+  const tab = new ExcaveloSettingTab({}, plugin);
+  renderTab(tab);
+  const row = rawRow((r) => ctrl(r, "button")?.buttonText === t("settings.update-starter.button"));
+  const btn = ctrl(row, "button");
+  assert.equal(btn.destructive, true, "1.13+ path must keep setDestructive()");
+  assert.ok(
+    !btn.buttonEl.classes.includes("mod-warning"),
+    "1.13+ path must not add the mod-warning class (that is the <1.13 branch)"
+  );
+});
+
+await checkAsync(
+  "language onChange with api-version flag false re-renders via display(), not update() (refresh fallback branch)",
+  async () => {
+    const plugin = makeFakePlugin();
+    const tab = new ExcaveloSettingTab({}, plugin);
+    mod.__setApiVersionSupported(false);
+    try {
+      renderFallback(tab);
+      let updateCalls = 0;
+      tab.update = () => {
+        updateCalls += 1;
+      };
+      const rowsBefore = mod.createdSettings.length;
+      const row = rawRow((r) => ctrl(r, "dropdown")?.options?.some((o) => o.value === "ko"));
+      await ctrl(row, "dropdown").onChangeFn("en");
+      assert.equal(updateCalls, 0, "below 1.13 the handler must not route through update()");
+      assert.ok(
+        mod.createdSettings.length > rowsBefore,
+        "the handler must re-render through the display() fallback (new Setting rows created)"
+      );
+    } finally {
+      mod.__setApiVersionSupported(true);
+    }
+  }
+);
+
+await checkAsync(
+  "CLI model dropdown onChange with api-version flag false re-renders via display(), not update() (refresh fallback branch)",
+  async () => {
+    const plugin = makeFakePlugin({ authMethod: "claude-code-cli" });
+    const tab = new ExcaveloSettingTab({}, plugin);
+    mod.__setApiVersionSupported(false);
+    try {
+      renderFallback(tab);
+      let updateCalls = 0;
+      tab.update = () => {
+        updateCalls += 1;
+      };
+      const rowsBefore = mod.createdSettings.length;
+      const row = rawRow((r) => ctrl(r, "dropdown")?.options?.some((o) => o.value === "opus"));
+      await ctrl(row, "dropdown").onChangeFn("opus");
+      assert.equal(updateCalls, 0, "below 1.13 the handler must not route through update()");
+      assert.ok(
+        mod.createdSettings.length > rowsBefore,
+        "the handler must re-render through the display() fallback (new Setting rows created)"
+      );
+    } finally {
+      mod.__setApiVersionSupported(true);
+    }
+  }
+);
+
+await checkAsync(
+  "model-list load success with api-version flag false re-renders via display(), not update() (refresh fallback branch)",
+  async () => {
+    const plugin = makeFakePlugin({
+      authMethod: "anthropic-api",
+      anthropicApi: { apiKey: "sk-ant-test", model: "" },
+    });
+    const tab = new ExcaveloSettingTab({}, plugin);
+    mod.__setApiVersionSupported(false);
+    try {
+      renderFallback(tab);
+      mod.__setRequestUrlHandler(async () => ({
+        status: 200,
+        text: JSON.stringify({ data: [{ id: "claude-x" }] }),
+      }));
+      let updateCalls = 0;
+      tab.update = () => {
+        updateCalls += 1;
+      };
+      const rowsBefore = mod.createdSettings.length;
+      const loadBtn = rawRow((r) => ctrl(r, "button")?.buttonText === t("settings.api-model.load"));
+      await ctrl(loadBtn, "button").onClickFn();
+      assert.equal(updateCalls, 0, "below 1.13 the handler must not route through update()");
+      assert.ok(
+        mod.createdSettings.length > rowsBefore,
+        "the handler must re-render through the display() fallback (new Setting rows created)"
+      );
+    } finally {
+      mod.__setApiVersionSupported(true);
+    }
+  }
+);
+
+check("fallback display() render alone never mutates settings or calls saveSettings (I2, fallback path)", () => {
+  mod.__setApiVersionSupported(false);
+  try {
+    const plugin = makeFakePlugin({ authMethod: "anthropic-api" });
+    const tab = new ExcaveloSettingTab({}, plugin);
+    const before = cloneSettings(plugin);
+    renderFallback(tab);
+    renderFallback(tab);
+    tab.cliModelCustom = true;
+    renderFallback(tab);
+    assert.deepEqual(plugin.settings, before, "fallback rendering alone must not mutate plugin.settings");
+    assert.equal(
+      plugin.__probe.saveSettingsCalls.length,
+      0,
+      "fallback rendering alone must not call saveSettings"
+    );
   } finally {
     mod.__setApiVersionSupported(true);
   }

@@ -35,13 +35,16 @@ export class ExcaveloSettingTab extends PluginSettingTab {
   /**
    * Fallback for Obsidian <1.13, where getSettingDefinitions() does not
    * exist: interprets the same definition tree imperatively (the official
-   * fallback pattern — obsidian.d.ts on getSettingDefinitions).
+   * fallback pattern — obsidian.d.ts, display()'s docstring).
    */
   display(): void {
     this.containerEl.empty();
     this.renderDefinitions(this.getSettingDefinitions());
   }
 
+  // The probe (scripts/probe-settings-tab.mjs) keeps its own independent
+  // interpretation of this tree as an oracle — do not merge or share code
+  // with it (settings-dual-path §Spec).
   private renderDefinitions(items: SettingDefinitionItem[] | SettingGroupItem[]): void {
     for (const item of items) {
       if ("type" in item) {
@@ -63,7 +66,11 @@ export class ExcaveloSettingTab extends PluginSettingTab {
     }
   }
 
-  /** Re-renders via update() on 1.13+, via the display() fallback below. */
+  /**
+   * Full re-render of the tab: update() on Obsidian 1.13+, the display()
+   * fallback on versions below 1.13. (Unlike 1.13's refreshDomState(), this
+   * is not a cheap in-place state toggle — it rebuilds every row.)
+   */
   private refresh(): void {
     if (requireApiVersion("1.13.0")) {
       this.update();
