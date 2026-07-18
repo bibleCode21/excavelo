@@ -86,6 +86,9 @@ export function __setApiVersionSupported(v) {
 export function requireApiVersion(_version) {
   return apiVersionSupported;
 }
+export function getLanguage() {
+  return "en";
+}
 
 let requestUrlHandler = async () => {
   throw new Error("probe: requestUrlHandler not set");

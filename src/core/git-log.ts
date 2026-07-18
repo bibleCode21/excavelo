@@ -109,13 +109,13 @@ export function branchCandidates(memoText: string): string[] {
  */
 function nodeApis() {
   if (!Platform.isDesktop) throw new Error(t("git.desktop-only"));
-  /* eslint-disable @typescript-eslint/no-var-requires -- guarded require, not import: the ESM form this rule prefers fails at runtime under Obsidian's loader (measured). obsidianmd/no-nodejs-modules explicitly permits require() behind the Platform.isDesktop guard above. */
+  /* eslint-disable @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports -- guarded require, not import: the ESM form this rule prefers fails at runtime under Obsidian's loader (measured). obsidianmd/no-nodejs-modules explicitly permits require() behind the Platform.isDesktop guard above. Both rule names are listed because the locally pinned typescript-eslint (v7) and the community-review bot's ruleset (v8) disagree on which one applies; whichever is inactive in a given environment shows as an "unused directive" note there — harmless (see WU-3 work contract). */
   return {
     cp: require("child_process") as typeof import("child_process"),
     fs: require("fs") as typeof import("fs"),
     os: require("os") as typeof import("os"),
   };
-  /* eslint-enable @typescript-eslint/no-var-requires -- end of the guarded-require block above */
+  /* eslint-enable @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports -- end of the guarded-require block above */
 }
 
 function gitCandidates(): string[] {
@@ -138,7 +138,7 @@ function runGit(args: string[]): Promise<{ code: number | null; stdout: string; 
       try {
         child = cp.spawn(bin, args, { windowsHide: true });
       } catch (e) {
-        reject(e);
+        reject(e instanceof Error ? e : new Error(String(e)));
         return;
       }
       let stdout = "";
@@ -147,10 +147,10 @@ function runGit(args: string[]): Promise<{ code: number | null; stdout: string; 
       const finish = (fn: () => void) => {
         if (settled) return;
         settled = true;
-        clearTimeout(timer);
+        window.clearTimeout(timer);
         fn();
       };
-      const timer = setTimeout(() => {
+      const timer = window.setTimeout(() => {
         child.kill();
         finish(() => reject(new Error("git log timed out")));
       }, GIT_TIMEOUT_MS);
@@ -171,7 +171,18 @@ function runGit(args: string[]): Promise<{ code: number | null; stdout: string; 
         if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
       }
     }
-    throw lastError ?? new Error("git not found");
+    const err = lastError ?? new Error("git not found");
+    if (err instanceof Error) throw err;
+    // Every rejection this module produces is already an Error (spawn-catch, timeout,
+    // child "error" event) — this branch is unreachable today. JSON.stringify can itself
+    // throw (circular refs) or return undefined (functions/symbols), so guard both.
+    let message: string | undefined;
+    try {
+      message = JSON.stringify(err);
+    } catch {
+      // circular reference — fall through to the default message below.
+    }
+    throw new Error(message ?? "git not found (non-Error rejection)");
   })();
 }
 
@@ -613,7 +624,7 @@ export async function loadGitLog(specs: string[], memoText = ""): Promise<string
     // nameless landings and evict the one landing that was actually selected.
     const selected = hit
       ? [
-          ...landings.filter((l) => l.branch !== null && hit!(l.branch)),
+          ...landings.filter((l) => l.branch !== null && hit(l.branch)),
           ...landings.filter((l) => l.branch === null),
         ]
       : landings;

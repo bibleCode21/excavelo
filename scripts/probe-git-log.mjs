@@ -33,6 +33,10 @@ import esbuild from "esbuild";
 const repoRoot = path.resolve(fileURLToPath(import.meta.url), "..", "..");
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "probe-git-log-"));
 
+// git-log.ts calls window.setTimeout/clearTimeout (obsidianmd/prefer-window-timers):
+// real in Obsidian's Electron renderer, absent under plain Node — polyfill for the probe.
+globalThis.window ??= { setTimeout, clearTimeout };
+
 /**
  * MAX_BRANCHES is not exported, and A11 only tests anything while the probe's
  * idea of the cap matches the module's: hardcode 50 here and a changed cap
@@ -75,7 +79,12 @@ function loadModule() {
   const stub = path.join(tmp, "obsidian-stub.js");
   const entry = path.join(tmp, "entry.ts");
   const out = path.join(tmp, "bundle.cjs");
-  fs.writeFileSync(stub, "export const Platform = { isMobile: false, isDesktop: true };\n");
+  fs.writeFileSync(
+    stub,
+    "export const Platform = { isMobile: false, isDesktop: true };\n" +
+      'export function getLanguage() { return "en"; }\n' +
+      "export function requireApiVersion(_version) { return true; }\n"
+  );
   fs.writeFileSync(
     entry,
     `export * from ${JSON.stringify(path.join(repoRoot, "src/core/git-log"))};\n` +

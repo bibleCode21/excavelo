@@ -157,7 +157,7 @@ export default class ExcaveloPlugin extends Plugin {
       case "openai-compat":
         return new OpenAiCompatProvider(this.settings.openAiCompat);
       default:
-        throw new Error(`Unknown auth method: ${method}`);
+        throw new Error(`Unknown auth method: ${String(method)}`);
     }
   }
 
