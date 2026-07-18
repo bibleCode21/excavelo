@@ -1,6 +1,7 @@
 ---
 status: confirmed
 ceremony: trivial
+approved-commit: f49847ac4d51cab4faf83f595f260dab2a97765c
 ---
 # WU-3 — 소규모 API 정합 8건 + no-require-imports 주석 정정
 
