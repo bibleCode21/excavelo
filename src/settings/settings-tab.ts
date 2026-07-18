@@ -1,4 +1,4 @@
-import { App, Notice, PluginSettingTab } from "obsidian";
+import { App, Notice, PluginSettingTab, Setting, requireApiVersion } from "obsidian";
 import type { SettingDefinitionGroup, SettingDefinitionItem, SettingGroupItem } from "obsidian";
 import type ExcaveloPlugin from "../main";
 import type { AuthMethod } from "../types";
@@ -8,6 +8,10 @@ import { setLocaleOverride, t } from "../i18n";
 
 const CLI_MODEL_ALIASES = ["sonnet", "opus", "haiku"];
 const CLI_MODEL_CUSTOM = "__custom__";
+
+function isVisible(v: boolean | (() => boolean) | undefined): boolean {
+  return typeof v === "function" ? v() : v !== false;
+}
 
 export class ExcaveloSettingTab extends PluginSettingTab {
   plugin: ExcaveloPlugin;
@@ -26,6 +30,53 @@ export class ExcaveloSettingTab extends PluginSettingTab {
     return (
       this.cliModelCustom || (currentModel !== "" && !CLI_MODEL_ALIASES.includes(currentModel))
     );
+  }
+
+  /**
+   * Fallback for Obsidian <1.13, where getSettingDefinitions() does not
+   * exist: interprets the same definition tree imperatively (the official
+   * fallback pattern — obsidian.d.ts, display()'s docstring).
+   */
+  display(): void {
+    this.containerEl.empty();
+    this.renderDefinitions(this.getSettingDefinitions());
+  }
+
+  // The probe (scripts/probe-settings-tab.mjs) keeps its own independent
+  // interpretation of this tree as an oracle — do not merge or share code
+  // with it (settings-dual-path §Spec).
+  private renderDefinitions(items: SettingDefinitionItem[] | SettingGroupItem[]): void {
+    for (const item of items) {
+      if ("type" in item) {
+        if (item.type === "page") continue; // not used by this tab
+        if (!isVisible(item.visible)) continue;
+        if (item.heading) new Setting(this.containerEl).setName(item.heading).setHeading();
+        this.renderDefinitions(item.items ?? []);
+      } else {
+        if (!isVisible(item.visible)) continue;
+        const setting = new Setting(this.containerEl);
+        if (item.name !== undefined) setting.setName(item.name);
+        if (item.desc !== undefined) setting.setDesc(item.desc);
+        // The group argument is unused by every definition in this tab, and
+        // SettingGroup cannot be constructed below 1.11 — hence the cast.
+        if (typeof item.render === "function") {
+          (item.render as (setting: Setting) => void)(setting);
+        }
+      }
+    }
+  }
+
+  /**
+   * Full re-render of the tab: update() on Obsidian 1.13+, the display()
+   * fallback on versions below 1.13. (Unlike 1.13's refreshDomState(), this
+   * is not a cheap in-place state toggle — it rebuilds every row.)
+   */
+  private refresh(): void {
+    if (requireApiVersion("1.13.0")) {
+      this.update();
+    } else {
+      this.display();
+    }
   }
 
   getSettingDefinitions(): SettingDefinitionItem[] {
@@ -52,7 +103,7 @@ export class ExcaveloSettingTab extends PluginSettingTab {
                 this.plugin.settings.language = v as never;
                 setLocaleOverride(this.plugin.settings.language);
                 await this.plugin.saveSettings();
-                this.update();
+                this.refresh();
               })
           );
         },
@@ -82,7 +133,7 @@ export class ExcaveloSettingTab extends PluginSettingTab {
                 .onChange(async (value) => {
                   this.plugin.settings.authMethod = value as AuthMethod;
                   await this.plugin.saveSettings();
-                  this.update();
+                  this.refresh();
                 })
             );
           },
@@ -134,7 +185,7 @@ export class ExcaveloSettingTab extends PluginSettingTab {
                   this.plugin.settings.claudeCodeCli.model = v;
                   await this.plugin.saveSettings();
                 }
-                this.update();
+                this.refresh();
               })
           );
         },
@@ -324,7 +375,7 @@ export class ExcaveloSettingTab extends PluginSettingTab {
               btn.setDisabled(true).setButtonText(t("settings.api-model.loading"));
               try {
                 this.modelLists[opts.cacheKey] = await opts.fetchModels();
-                this.update();
+                this.refresh();
               } catch (err) {
                 new Notice(t("settings.api-model.failed", { error: (err as Error).message }));
                 btn
@@ -452,15 +503,18 @@ export class ExcaveloSettingTab extends PluginSettingTab {
           name: t("settings.update-starter.name"),
           desc: t("settings.update-starter.desc"),
           render: (setting) => {
-            setting.addButton((b) =>
-              b
-                .setButtonText(t("settings.update-starter.button"))
-                .setDestructive()
-                .onClick(async () => {
-                  await this.plugin.templates.forceWriteStarter();
-                  new Notice(t("settings.update-starter.notice"));
-                })
-            );
+            setting.addButton((b) => {
+              b.setButtonText(t("settings.update-starter.button")).onClick(async () => {
+                await this.plugin.templates.forceWriteStarter();
+                new Notice(t("settings.update-starter.notice"));
+              });
+              if (requireApiVersion("1.13.0")) {
+                b.setDestructive();
+              } else {
+                // Same visual as the deprecated setWarning() without calling it.
+                b.buttonEl.addClass("mod-warning");
+              }
+            });
           },
         },
       ],
