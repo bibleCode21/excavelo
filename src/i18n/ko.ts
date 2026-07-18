@@ -85,6 +85,8 @@ const ko: Record<string, string> = {
   "settings.cli.custom-model.desc": "전체 모델 id 를 입력하세요. 예: claude-sonnet-4-6",
   "settings.cli.permission.name": "권한 모드",
   "settings.cli.permission.desc": "bypassPermissions 는 도구 사용 확인 프롬프트를 건너뜁니다. 순수 텍스트 생성에는 안전합니다.",
+  "settings.cli.permission.option.default": "기본값",
+  "settings.cli.permission.option.bypass": "권한 확인 건너뛰기",
   "settings.cli.timeout.name": "타임아웃 (초)",
   "settings.cli.timeout.desc": "Claude Code 응답을 기다리는 최대 시간. 긴 입력은 몇 분씩 걸릴 수 있으니(특히 opus) 넉넉히 잡으세요.",
 

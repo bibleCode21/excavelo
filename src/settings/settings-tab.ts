@@ -198,6 +198,9 @@ export class ExcaveloSettingTab extends PluginSettingTab {
           const currentModel = this.plugin.settings.claudeCodeCli.model;
           setting.addText((tt) =>
             tt
+              // sentence-case flags this, but it's the real model id example
+              // users type — sentence-casing it would misrepresent the value.
+              // Accepted warning; see WU-5 work contract.
               .setPlaceholder("claude-sonnet-4-6")
               .setValue(CLI_MODEL_ALIASES.includes(currentModel) ? "" : currentModel)
               .onChange(async (v) => {
@@ -214,8 +217,8 @@ export class ExcaveloSettingTab extends PluginSettingTab {
         render: (setting) => {
           setting.addDropdown((dd) =>
             dd
-              .addOption("default", "default")
-              .addOption("bypassPermissions", "bypassPermissions")
+              .addOption("default", t("settings.cli.permission.option.default"))
+              .addOption("bypassPermissions", t("settings.cli.permission.option.bypass"))
               .setValue(this.plugin.settings.claudeCodeCli.permissionMode)
               .onChange(async (v) => {
                 this.plugin.settings.claudeCodeCli.permissionMode = v as never;
@@ -260,6 +263,8 @@ export class ExcaveloSettingTab extends PluginSettingTab {
         render: (setting) => {
           setting.addText((tt) => {
             tt.inputEl.type = "password";
+            // Same accepted case as the CLI model placeholder above: this is
+            // the real Anthropic API key prefix format, not label text.
             tt.setPlaceholder("sk-ant-...")
               .setValue(this.plugin.settings.anthropicApi.apiKey)
               .onChange(async (v) => {
