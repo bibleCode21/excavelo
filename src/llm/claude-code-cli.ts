@@ -32,14 +32,14 @@ const DEFAULT_TIMEOUT_SECONDS = 720;
  */
 function nodeApis() {
   if (!Platform.isDesktop) throw new LlmError("Node APIs are desktop-only.");
-  /* eslint-disable @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports -- guarded require, not import: the ESM form this rule prefers fails at runtime under Obsidian's loader (measured). obsidianmd/no-nodejs-modules explicitly permits require() behind the Platform.isDesktop guard above. Both rule names are listed because the locally pinned typescript-eslint (v7) and the community-review bot's ruleset (v8) disagree on which one applies; whichever is inactive in a given environment shows as an "unused directive" note there — harmless (see WU-3 work contract). */
+  /* eslint-disable @typescript-eslint/no-require-imports -- guarded require, not import: the ESM form this rule prefers fails at runtime under Obsidian's loader (measured). obsidianmd/no-nodejs-modules explicitly permits require() behind the Platform.isDesktop guard above. */
   return {
     cp: require("child_process") as typeof import("child_process"),
     fs: require("fs") as typeof import("fs"),
     path: require("path") as typeof import("path"),
     os: require("os") as typeof import("os"),
   };
-  /* eslint-enable @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports -- end of the guarded-require block above */
+  /* eslint-enable @typescript-eslint/no-require-imports -- end of the guarded-require block above */
 }
 
 function isWindows(): boolean {
