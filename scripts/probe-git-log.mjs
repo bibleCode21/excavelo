@@ -75,7 +75,7 @@ function loadModule() {
   const stub = path.join(tmp, "obsidian-stub.js");
   const entry = path.join(tmp, "entry.ts");
   const out = path.join(tmp, "bundle.cjs");
-  fs.writeFileSync(stub, "export const Platform = { isMobile: false };\n");
+  fs.writeFileSync(stub, "export const Platform = { isMobile: false, isDesktop: true };\n");
   fs.writeFileSync(
     entry,
     `export * from ${JSON.stringify(path.join(repoRoot, "src/core/git-log"))};\n` +
