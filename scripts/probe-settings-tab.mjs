@@ -18,6 +18,12 @@
  * display() is the fallback. That dispatch is what lets the exact same
  * assertions run against both states of the code.
  *
+ * Revised per docs/specs/settings-dual-path.md: the tab is dual-path now —
+ * getSettingDefinitions() on 1.13+, a display() interpreter fallback below.
+ * The stub gains a flag-based `requireApiVersion` (`__setApiVersionSupported`)
+ * so both branches are drivable; the structure matrix runs against both render
+ * paths and asserts their snapshots equal (version-branched fields excepted).
+ *
  * The stub's `Setting` is a *recording* fake, not a DOM: every
  * .setName/.setDesc/.setHeading/.addXxx call is recorded onto a `controls`
  * array (a row can carry more than one control — the shared model picker row
@@ -73,6 +79,14 @@ export class Notice {
   }
 }
 
+let apiVersionSupported = true;
+export function __setApiVersionSupported(v) {
+  apiVersionSupported = v;
+}
+export function requireApiVersion(_version) {
+  return apiVersionSupported;
+}
+
 let requestUrlHandler = async () => {
   throw new Error("probe: requestUrlHandler not set");
 };
@@ -109,7 +123,20 @@ export function __resetCreatedSettings() {
 }
 
 function makeComponent(kind) {
-  const c = { kind, options: [], disabled: false, cta: false, destructive: false, inputEl: {} };
+  const c = {
+    kind,
+    options: [],
+    disabled: false,
+    cta: false,
+    destructive: false,
+    inputEl: {},
+    buttonEl: {
+      classes: [],
+      addClass(...cs) {
+        for (const x of cs) this.classes.push(x);
+      },
+    },
+  };
   c.setValue = (v) => { c.value = v; return c; };
   c.setPlaceholder = (v) => { c.placeholder = v; return c; };
   c.onChange = (fn) => { c.onChangeFn = fn; return c; };
@@ -152,7 +179,7 @@ function loadModule() {
     `export { ExcaveloSettingTab } from ${JSON.stringify(
       path.join(repoRoot, "src/settings/settings-tab")
     )};\n` +
-      `export { Setting, noticeLog, __setRequestUrlHandler, createdSettings, __resetCreatedSettings } from "obsidian";\n` +
+      `export { Setting, noticeLog, __setRequestUrlHandler, __setApiVersionSupported, createdSettings, __resetCreatedSettings } from "obsidian";\n` +
       `export { t } from ${JSON.stringify(path.join(repoRoot, "src/i18n"))};\n`
   );
   esbuild.buildSync({
@@ -300,8 +327,32 @@ function snapshot() {
       disabled: c.disabled,
       cta: c.cta,
       destructive: c.destructive,
+      buttonElClasses: c.buttonEl ? [...c.buttonEl.classes] : [],
       buttonText: c.buttonText,
     })),
+  }));
+}
+
+/**
+ * Renders the tab the way Obsidian <1.13 does: display() only — the
+ * declarative API does not exist there. The caller must set the stub's
+ * api-version flag to false first (version-branched render details like the
+ * destructive button live inside render callbacks and read the flag).
+ */
+function renderFallback(tab) {
+  mod.__resetCreatedSettings();
+  tab.display();
+  return snapshot();
+}
+
+// Version-branched fields (setDestructive on 1.13+ vs mod-warning below —
+// contract §Spec "setDestructive 가드") are asserted per-path in dedicated
+// checks; strip them before the cross-path deepEqual (Preservation 2's
+// explicit exception).
+function stripVersionBranchedFields(rows) {
+  return rows?.map((r) => ({
+    ...r,
+    controls: r.controls.map(({ destructive, buttonElClasses, ...rest }) => rest),
   }));
 }
 
@@ -315,7 +366,9 @@ function rawRow(matcher) {
 }
 
 // --- structure: row presence/order per auth method, cliModelCustom,
-// modelLists combination --------------------------------------------------
+// modelLists combination — run through BOTH render paths (declarative walk
+// and the <1.13 display() fallback), then cross-checked for equality
+// (contract settings-dual-path §Spec 프로브 개정 2 / Preservation 2) ---------
 
 const AUTH_METHODS = ["claude-code-cli", "anthropic-api", "openai-compat"];
 
@@ -323,65 +376,97 @@ for (const authMethod of AUTH_METHODS) {
   for (const cliModelCustom of authMethod === "claude-code-cli" ? [false, true] : [false]) {
     for (const modelLoaded of authMethod !== "claude-code-cli" ? [false, true] : [false]) {
       const label = `authMethod=${authMethod} cliModelCustom=${cliModelCustom} modelLoaded=${modelLoaded}`;
-      const plugin = makeFakePlugin({ authMethod });
-      const tab = new ExcaveloSettingTab({}, plugin);
-      tab.cliModelCustom = cliModelCustom;
-      if (modelLoaded) {
-        const cacheKey = authMethod === "anthropic-api" ? "anthropic" : "openai";
-        tab.modelLists = { [cacheKey]: ["model-a", "model-b"] };
+      const makeFixtureTab = () => {
+        const plugin = makeFakePlugin({ authMethod });
+        const tab = new ExcaveloSettingTab({}, plugin);
+        tab.cliModelCustom = cliModelCustom;
+        if (modelLoaded) {
+          const cacheKey = authMethod === "anthropic-api" ? "anthropic" : "openai";
+          tab.modelLists = { [cacheKey]: ["model-a", "model-b"] };
+        }
+        return { plugin, tab };
+      };
+
+      const pathSnapshots = {};
+      for (const pathName of ["declarative", "fallback"]) {
+        let plugin;
+        let tab;
+        let rows = [];
+
+        check(`${label} [${pathName}] — render succeeds`, () => {
+          ({ plugin, tab } = makeFixtureTab());
+          if (pathName === "fallback") {
+            mod.__setApiVersionSupported(false);
+            try {
+              rows = renderFallback(tab);
+            } finally {
+              mod.__setApiVersionSupported(true);
+            }
+          } else {
+            rows = renderTab(tab);
+          }
+          pathSnapshots[pathName] = rows;
+        });
+
+        check(`${label} [${pathName}] — containerEl carries excavelo-settings class`, () => {
+          assert.ok(tab.containerEl.classes.has("excavelo-settings"));
+        });
+
+        check(`${label} [${pathName}] — title heading row present, before the language row`, () => {
+          const titleIdx = rows.findIndex((r) => r.heading && r.name === t("settings.title"));
+          const langIdx = rows.findIndex(
+            (r) => ctrl(r, "dropdown")?.value === plugin.settings.language && ctrl(r, "dropdown")?.options?.some((o) => o.value === "auto")
+          );
+          assert.ok(titleIdx >= 0, "title heading row missing");
+          assert.ok(langIdx > titleIdx, "language dropdown is not after the title heading");
+        });
+
+        check(`${label} [${pathName}] — exactly one auth-method sub-section's rows are present`, () => {
+          const binaryPathRow = rows.some((r) => ctrl(r, "text")?.placeholder === t("settings.cli.binary.placeholder"));
+          if (authMethod === "claude-code-cli") assert.ok(binaryPathRow, "CLI binary path row missing");
+          else assert.ok(!binaryPathRow, "CLI binary path row leaked into a non-CLI auth method");
+        });
+
+        check(`${label} [${pathName}] — CLI custom-model text row visibility matches cliModelCustom`, () => {
+          if (authMethod !== "claude-code-cli") return;
+          const customRow = rows.some((r) => ctrl(r, "text")?.placeholder === "claude-sonnet-4-6");
+          assert.equal(customRow, cliModelCustom, "custom-model row visibility mismatch");
+        });
+
+        check(`${label} [${pathName}] — shared model picker renders text vs. dropdown per modelLists`, () => {
+          if (authMethod === "claude-code-cli") return;
+          const dropdownRow = rows.some((r) => ctrl(r, "dropdown")?.options?.some((o) => o.value === "model-a"));
+          assert.equal(dropdownRow, modelLoaded, "model picker control kind does not match modelLists state");
+        });
+
+        check(`${label} [${pathName}] — shared model picker desc reflects load state (Preservation item 5)`, () => {
+          if (authMethod === "claude-code-cli") return;
+          const row = rows.find((r) => r.name === t("settings.api-model.name"));
+          assert.ok(row, "api-model row missing");
+          const expectedDesc = modelLoaded
+            ? t("settings.api-model.desc-loaded", { count: 2 })
+            : t("settings.api-model.desc-text");
+          assert.equal(row.desc, expectedDesc, "api-model desc must reflect current load state");
+        });
+
+        check(`${label} [${pathName}] — Test Connection button has no visible label, only a CTA button`, () => {
+          const testRow = rows.find((r) => {
+            const b = ctrl(r, "button");
+            return b?.buttonText === t("settings.test-connection.button") && b?.cta === true;
+          });
+          assert.ok(testRow, "Test Connection button row missing");
+          assert.ok(!testRow.name, "Test Connection row must render with no visible label text");
+          assert.ok(!testRow.desc, "Test Connection row must render with no visible desc text");
+        });
       }
 
-      const rows = renderTab(tab);
-
-      check(`${label} — containerEl carries excavelo-settings class`, () => {
-        assert.ok(tab.containerEl.classes.has("excavelo-settings"));
-      });
-
-      check(`${label} — title heading row present, before the language row`, () => {
-        const titleIdx = rows.findIndex((r) => r.heading && r.name === t("settings.title"));
-        const langIdx = rows.findIndex(
-          (r) => ctrl(r, "dropdown")?.value === plugin.settings.language && ctrl(r, "dropdown")?.options?.some((o) => o.value === "auto")
+      check(`${label} — fallback render matches declarative render (Preservation 2)`, () => {
+        assert.ok(pathSnapshots.declarative?.length, "declarative snapshot missing");
+        assert.ok(pathSnapshots.fallback?.length, "fallback snapshot missing");
+        assert.deepEqual(
+          stripVersionBranchedFields(pathSnapshots.fallback),
+          stripVersionBranchedFields(pathSnapshots.declarative)
         );
-        assert.ok(titleIdx >= 0, "title heading row missing");
-        assert.ok(langIdx > titleIdx, "language dropdown is not after the title heading");
-      });
-
-      check(`${label} — exactly one auth-method sub-section's rows are present`, () => {
-        const binaryPathRow = rows.some((r) => ctrl(r, "text")?.placeholder === t("settings.cli.binary.placeholder"));
-        if (authMethod === "claude-code-cli") assert.ok(binaryPathRow, "CLI binary path row missing");
-        else assert.ok(!binaryPathRow, "CLI binary path row leaked into a non-CLI auth method");
-      });
-
-      check(`${label} — CLI custom-model text row visibility matches cliModelCustom`, () => {
-        if (authMethod !== "claude-code-cli") return;
-        const customRow = rows.some((r) => ctrl(r, "text")?.placeholder === "claude-sonnet-4-6");
-        assert.equal(customRow, cliModelCustom, "custom-model row visibility mismatch");
-      });
-
-      check(`${label} — shared model picker renders text vs. dropdown per modelLists`, () => {
-        if (authMethod === "claude-code-cli") return;
-        const dropdownRow = rows.some((r) => ctrl(r, "dropdown")?.options?.some((o) => o.value === "model-a"));
-        assert.equal(dropdownRow, modelLoaded, "model picker control kind does not match modelLists state");
-      });
-
-      check(`${label} — shared model picker desc reflects load state (Preservation item 5)`, () => {
-        if (authMethod === "claude-code-cli") return;
-        const row = rows.find((r) => r.name === t("settings.api-model.name"));
-        assert.ok(row, "api-model row missing");
-        const expectedDesc = modelLoaded
-          ? t("settings.api-model.desc-loaded", { count: 2 })
-          : t("settings.api-model.desc-text");
-        assert.equal(row.desc, expectedDesc, "api-model desc must reflect current load state");
-      });
-
-      check(`${label} — Test Connection button has no visible label, only a CTA button`, () => {
-        const testRow = rows.find((r) => {
-          const b = ctrl(r, "button");
-          return b?.buttonText === t("settings.test-connection.button") && b?.cta === true;
-        });
-        assert.ok(testRow, "Test Connection button row missing");
-        assert.ok(!testRow.name, "Test Connection row must render with no visible label text");
-        assert.ok(!testRow.desc, "Test Connection row must render with no visible desc text");
       });
     }
   }
@@ -539,12 +624,27 @@ await checkAsync("Test connection: a thrown error is caught and shown as the fai
 // only.
 // ---------------------------------------------------------------------------
 
-check("display() is removed from the class entirely (SC2)", () => {
+// Old SC2 ("display() removed entirely") is superseded by
+// docs/specs/settings-dual-path.md: display() is reinstated as the <1.13
+// fallback interpreter over the same definition tree.
+check("display() exists as the <1.13 fallback (settings-dual-path supersedes SC2)", () => {
   assert.equal(
     typeof ExcaveloSettingTab.prototype.display,
-    "undefined",
-    "ExcaveloSettingTab must not define its own display() (Obsidian bypasses it once getSettingDefinitions() is non-empty)"
+    "function",
+    "ExcaveloSettingTab must define display() as the <1.13 fallback (settings-dual-path §Spec)"
   );
+});
+
+check("fallback render (api-version flag false) produces rows", () => {
+  mod.__setApiVersionSupported(false);
+  try {
+    const plugin = makeFakePlugin();
+    const tab = new ExcaveloSettingTab({}, plugin);
+    const rows = renderFallback(tab);
+    assert.ok(rows.length > 0, "display() fallback must render rows");
+  } finally {
+    mod.__setApiVersionSupported(true);
+  }
 });
 
 function cloneSettings(plugin) {
@@ -904,6 +1004,52 @@ await checkAsync("model-list load success calls this.update() (SC3)", async () =
   const loadBtn = rawRow((r) => ctrl(r, "button")?.buttonText === t("settings.api-model.load"));
   await ctrl(loadBtn, "button").onClickFn();
   assert.equal(updateCalls, 1);
+});
+
+// --- settings-dual-path: refresh()/setDestructive version branches ---------
+// Flag-true expectations are the existing SC3 update() checks above and the
+// destructive===true assertion in the update-starter check; these cover the
+// flag-false (<1.13) side.
+
+await checkAsync(
+  "auth-method onChange with api-version flag false re-renders via display(), not update() (refresh fallback branch)",
+  async () => {
+    const plugin = makeFakePlugin();
+    const tab = new ExcaveloSettingTab({}, plugin);
+    mod.__setApiVersionSupported(false);
+    try {
+      renderFallback(tab);
+      let updateCalls = 0;
+      tab.update = () => {
+        updateCalls += 1;
+      };
+      const rowsBefore = mod.createdSettings.length;
+      const row = rawRow((r) => ctrl(r, "dropdown")?.options?.some((o) => o.value === "openai-compat"));
+      await ctrl(row, "dropdown").onChangeFn("openai-compat");
+      assert.equal(updateCalls, 0, "below 1.13 the handler must not route through update()");
+      assert.ok(
+        mod.createdSettings.length > rowsBefore,
+        "the handler must re-render through the display() fallback (new Setting rows created)"
+      );
+    } finally {
+      mod.__setApiVersionSupported(true);
+    }
+  }
+);
+
+check("update-starter button below 1.13 gets mod-warning class instead of setDestructive()", () => {
+  mod.__setApiVersionSupported(false);
+  try {
+    const plugin = makeFakePlugin();
+    const tab = new ExcaveloSettingTab({}, plugin);
+    renderFallback(tab);
+    const row = rawRow((r) => ctrl(r, "button")?.buttonText === t("settings.update-starter.button"));
+    const btn = ctrl(row, "button");
+    assert.equal(btn.destructive, false, "setDestructive() must not be called below 1.13");
+    assert.ok(btn.buttonEl.classes.includes("mod-warning"), "fallback must add the mod-warning class");
+  } finally {
+    mod.__setApiVersionSupported(true);
+  }
 });
 
 // ---------------------------------------------------------------------------
