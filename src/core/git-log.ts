@@ -172,7 +172,17 @@ function runGit(args: string[]): Promise<{ code: number | null; stdout: string; 
       }
     }
     const err = lastError ?? new Error("git not found");
-    throw err instanceof Error ? err : new Error(JSON.stringify(err));
+    if (err instanceof Error) throw err;
+    // Every rejection this module produces is already an Error (spawn-catch, timeout,
+    // child "error" event) — this branch is unreachable today. JSON.stringify can itself
+    // throw (circular refs) or return undefined (functions/symbols), so guard both.
+    let message: string | undefined;
+    try {
+      message = JSON.stringify(err);
+    } catch {
+      // circular reference — fall through to the default message below.
+    }
+    throw new Error(message ?? "git not found (non-Error rejection)");
   })();
 }
 
