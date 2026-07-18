@@ -1,6 +1,7 @@
 ---
 status: confirmed
 ceremony: standard
+approved-commit: b28c54e86813743fd808f110885f71eda14bff63
 ---
 # WU-6 — eslint.config.mjs를 obsidianmd recommended + typescript-eslint v8로 마이그레이션
 
