@@ -1,6 +1,7 @@
 ---
 status: confirmed
 ceremony: standard
+approved-commit: ad86d11a0e3b12f6b93f29587bb7a40c98179f30
 ---
 # WU-4 — templates.ts frontmatter 타입 좁히기 (+ 특성화 테스트 신설)
 
