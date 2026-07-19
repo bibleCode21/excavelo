@@ -1,4 +1,3 @@
-/// <reference types="node" />
 import { Platform } from "obsidian";
 import type { ClaudeCodeCliSettings, LlmResponse, PromptInput } from "../types";
 import type { GenerateOptions, LlmProvider } from "./llm";
@@ -23,6 +22,45 @@ const VERSION_TIMEOUT_MS = 10_000;
 const DEFAULT_TIMEOUT_SECONDS = 720;
 
 /**
+ * Minimal local shapes for the Node globals/modules this file touches.
+ * Obsidian's community-plugin submission linter type-checks source files
+ * without installing devDependencies, so @types/node (and the require/process
+ * globals it declares) is unresolvable there even though it's present in this
+ * project's own tsconfig — leaving every require()/process access "unsafe" by
+ * that linter's typescript-eslint rules. Declaring these locally (shadowing
+ * the ambient @types/node versions when they do resolve, without conflicting
+ * with them — verified) makes the file self-contained either way.
+ */
+declare function require(id: string): unknown;
+declare const process: { platform: string; env: Record<string, string | undefined> };
+interface NodeChildProcess {
+  readonly pid?: number;
+  readonly stdout: { on(event: "data", listener: (chunk: unknown) => void): void } | null;
+  readonly stderr: { on(event: "data", listener: (chunk: unknown) => void): void } | null;
+  readonly stdin: {
+    on(event: "error", listener: () => void): void;
+    write(data: string): void;
+    end(): void;
+  } | null;
+  kill(): void;
+  on(event: "error", listener: (err: Error) => void): void;
+  on(event: "close", listener: (code: number | null) => void): void;
+}
+interface NodeChildProcessModule {
+  spawn(command: string, args: string[], options?: Record<string, unknown>): NodeChildProcess;
+}
+interface NodeFsModule {
+  existsSync(path: string): boolean;
+  readdirSync(path: string): string[];
+}
+interface NodeOsModule {
+  homedir(): string;
+}
+interface NodePathModule {
+  join(...parts: string[]): string;
+}
+
+/**
  * Node built-ins must be required lazily: this module is bundled into main.js,
  * which also loads on mobile where none of these exist. Every caller is behind
  * a Platform.isMobile guard. The isDesktop check below is redundant with that —
@@ -33,14 +71,15 @@ const DEFAULT_TIMEOUT_SECONDS = 720;
  */
 function nodeApis() {
   if (!Platform.isDesktop) throw new LlmError("Node APIs are desktop-only.");
-  /* eslint-disable @typescript-eslint/no-require-imports -- guarded require, not import: the ESM form this rule prefers fails at runtime under Obsidian's loader (measured). obsidianmd/no-nodejs-modules explicitly permits require() behind the Platform.isDesktop guard above. */
+  // guarded require, not import: the ESM form this rule prefers fails at runtime under
+  // Obsidian's loader (measured). obsidianmd/no-nodejs-modules explicitly permits
+  // require() behind the Platform.isDesktop guard above.
   return {
-    cp: require("child_process") as typeof import("child_process"),
-    fs: require("fs") as typeof import("fs"),
-    path: require("path") as typeof import("path"),
-    os: require("os") as typeof import("os"),
+    cp: require("child_process") as NodeChildProcessModule,
+    fs: require("fs") as NodeFsModule,
+    path: require("path") as NodePathModule,
+    os: require("os") as NodeOsModule,
   };
-  /* eslint-enable @typescript-eslint/no-require-imports -- end of the guarded-require block above */
 }
 
 function isWindows(): boolean {
@@ -90,7 +129,7 @@ type RunCliResult =
  * Kill the child and, on Windows, its whole tree: a .cmd shim runs through
  * cmd.exe, and killing only cmd.exe would orphan the node process underneath.
  */
-function killTree(child: import("child_process").ChildProcess): void {
+function killTree(child: NodeChildProcess): void {
   const { cp } = nodeApis();
   if (isWindows() && child.pid) {
     try {
@@ -107,7 +146,7 @@ function runCli(binPath: string, args: string[], opts: RunCliOptions): Promise<R
   const { cp } = nodeApis();
   return new Promise((resolve) => {
     const spec = buildCliSpawn(binPath, args);
-    let child: import("child_process").ChildProcess;
+    let child: NodeChildProcess;
     try {
       child = cp.spawn(spec.command, spec.args, {
         windowsHide: true,
