@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import { Platform } from "obsidian";
 import { t } from "../i18n";
 

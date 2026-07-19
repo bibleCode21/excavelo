@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import { Platform } from "obsidian";
 import type { ClaudeCodeCliSettings, LlmResponse, PromptInput } from "../types";
 import type { GenerateOptions, LlmProvider } from "./llm";
