@@ -100,6 +100,36 @@ export function branchCandidates(memoText: string): string[] {
 }
 
 /**
+ * Minimal local shapes for the Node globals/modules this file touches.
+ * Obsidian's community-plugin submission linter type-checks source files
+ * without installing devDependencies, so @types/node (and the require/process
+ * globals it declares) is unresolvable there even though it's present in this
+ * project's own tsconfig — leaving every require()/process access "unsafe" by
+ * that linter's typescript-eslint rules. Declaring these locally (shadowing
+ * the ambient @types/node versions when they do resolve, without conflicting
+ * with them — verified) makes the file self-contained either way.
+ */
+declare function require(id: string): unknown;
+declare const process: { platform: string; env: Record<string, string | undefined> };
+interface NodeChildProcess {
+  readonly pid?: number;
+  readonly stdout: { on(event: "data", listener: (chunk: unknown) => void): void } | null;
+  readonly stderr: { on(event: "data", listener: (chunk: unknown) => void): void } | null;
+  kill(): void;
+  on(event: "error", listener: (err: Error) => void): void;
+  on(event: "close", listener: (code: number | null) => void): void;
+}
+interface NodeChildProcessModule {
+  spawn(command: string, args: string[], options?: Record<string, unknown>): NodeChildProcess;
+}
+interface NodeFsModule {
+  existsSync(path: string): boolean;
+}
+interface NodeOsModule {
+  homedir(): string;
+}
+
+/**
  * Lazy require: this module is bundled into main.js, which also loads on mobile.
  * The isDesktop check below is redundant with loadGitLog's own isMobile guard —
  * it exists only so eslint-plugin-obsidianmd's no-nodejs-modules rule, which
@@ -109,13 +139,14 @@ export function branchCandidates(memoText: string): string[] {
  */
 function nodeApis() {
   if (!Platform.isDesktop) throw new Error(t("git.desktop-only"));
-  /* eslint-disable @typescript-eslint/no-require-imports -- guarded require, not import: the ESM form this rule prefers fails at runtime under Obsidian's loader (measured). obsidianmd/no-nodejs-modules explicitly permits require() behind the Platform.isDesktop guard above. */
+  // guarded require, not import: the ESM form this rule prefers fails at runtime under
+  // Obsidian's loader (measured). obsidianmd/no-nodejs-modules explicitly permits
+  // require() behind the Platform.isDesktop guard above.
   return {
-    cp: require("child_process") as typeof import("child_process"),
-    fs: require("fs") as typeof import("fs"),
-    os: require("os") as typeof import("os"),
+    cp: require("child_process") as NodeChildProcessModule,
+    fs: require("fs") as NodeFsModule,
+    os: require("os") as NodeOsModule,
   };
-  /* eslint-enable @typescript-eslint/no-require-imports -- end of the guarded-require block above */
 }
 
 function gitCandidates(): string[] {
@@ -134,7 +165,7 @@ function runGit(args: string[]): Promise<{ code: number | null; stdout: string; 
   const { cp } = nodeApis();
   const tryOne = (bin: string) =>
     new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve, reject) => {
-      let child: import("child_process").ChildProcess;
+      let child: NodeChildProcess;
       try {
         child = cp.spawn(bin, args, { windowsHide: true });
       } catch (e) {
@@ -168,7 +199,7 @@ function runGit(args: string[]): Promise<{ code: number | null; stdout: string; 
       } catch (e) {
         lastError = e;
         // ENOENT -> try the next candidate; anything else is a real failure.
-        if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+        if ((e as { code?: string }).code !== "ENOENT") throw e;
       }
     }
     const err = lastError ?? new Error("git not found");

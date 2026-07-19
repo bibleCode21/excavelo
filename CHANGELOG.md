@@ -7,6 +7,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [1.4.6] - 2026-07-19
+
+### Changed
+
+- Node API access in `git-log.ts` and `claude-code-cli.ts` (`process`, `require`, `child_process`/`fs`/`os`/`path`) now uses minimal locally-declared type shapes instead of relying on `@types/node`'s ambient globals/module declarations. The community-plugin review bot type-checks source without installing devDependencies, so `@types/node` was never resolvable there, leaving those call sites flagged as unsafe regardless of how correctly they were already typed. No functional change.
+
 ## [1.4.5] - 2026-07-19
 
 ### Fixed
