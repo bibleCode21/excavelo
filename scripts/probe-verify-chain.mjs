@@ -116,16 +116,19 @@ function res(text, usage = {}) {
   return { text, ...usage };
 }
 
-/** generate stub that replays scripted responses and records calls. */
+/** generate stub that replays scripted responses and records calls + opts. */
 function scriptedGenerate(script) {
   const calls = [];
-  const fn = async (input) => {
+  const optsLog = [];
+  const fn = async (input, opts) => {
     calls.push(input);
+    optsLog.push(opts);
     const step = script[calls.length - 1];
     if (step instanceof Error) throw step;
     return { ...step };
   };
   fn.calls = calls;
+  fn.optsLog = optsLog;
   return fn;
 }
 
@@ -197,6 +200,10 @@ check("transcript present → transcript section + category-limited judgment set
   assert.match(p.user, /speaker/i);
   // 잡담 제외 상속
   assert.match(p.user, /small talk/i);
+  // 메모-우선 상속
+  assert.match(p.user, /memo wins/i);
+  // 비추측 상속
+  assert.match(p.user, /do not guess/i);
 });
 
 console.log("buildRepairPrompt — repair input contract");
@@ -228,6 +235,18 @@ await checkAsync("missing [] → verify usage aggregated into the response", asy
   assert.equal(response.inputTokens, 15);
   assert.equal(response.outputTokens, 27);
   assert.ok(Math.abs(response.costUsd - 0.12) < 1e-9);
+});
+await checkAsync("repaired path → verify AND repair usage aggregated into the response", async () => {
+  // Success criterion 6: 토큰·비용은 체인 전 호출 합산 — the 3-call path adds twice.
+  const gen = scriptedGenerate([
+    res('{"missing": ["a"]}', { inputTokens: 5, outputTokens: 7, costUsd: 0.02 }),
+    res("FIXED", { inputTokens: 3, outputTokens: 11, costUsd: 0.05 }),
+  ]);
+  const response = res("BODY", { inputTokens: 10, outputTokens: 20, costUsd: 0.1 });
+  await runVerifyChain(gen, ctx(), response);
+  assert.equal(response.inputTokens, 18);
+  assert.equal(response.outputTokens, 38);
+  assert.ok(Math.abs(response.costUsd - 0.17) < 1e-9);
 });
 await checkAsync("missing [a,b] → repair once, stripped output replaces text, repairedCount 2", async () => {
   const gen = scriptedGenerate([
@@ -286,15 +305,20 @@ function makeEditor(noteText) {
 }
 function makePlugin(settings, generateScript) {
   const gen = scriptedGenerate(generateScript);
+  const resolveCalls = [];
   return {
     plugin: {
       settings,
       app: { workspace: { getActiveFile: () => null }, metadataCache: {}, vault: {} },
       vaultRoot: () => "/",
-      resolveProvider: async () => ({ id: "stub", generate: gen, ping: async () => ({ ok: true }) }),
+      resolveProvider: async (template) => {
+        resolveCalls.push(template);
+        return { id: "stub", generate: gen, ping: async () => ({ ok: true }) };
+      },
       setStatusBusy: () => {},
     },
     gen,
+    resolveCalls,
   };
 }
 
@@ -322,6 +346,50 @@ await checkAsync("toggle OFF → verification null, exactly one call", async () 
 check("DEFAULT_SETTINGS ships verifyCompleteness: true", () => {
   assert.equal(DEFAULT_SETTINGS.verifyCompleteness, true);
 });
+
+await checkAsync(
+  "repaired path end-to-end: 3 calls total, same model opts on every call, provider resolved once, repaired text returned",
+  async () => {
+    // Success criterion 2 (총 호출 ≤ 3) + invariant: 검증·보수는 변환과 동일
+    // 프로바이더·모델 — resolveProvider(template) 결과 재사용, template.model
+    // forwarded to the verify and repair calls exactly as to the transform.
+    const withModel = { ...TEMPLATE, model: "model-x" };
+    const { plugin, gen, resolveCalls } = makePlugin(
+      { ...DEFAULT_SETTINGS, verifyCompleteness: true },
+      [res("OUT"), res('{"missing": ["a"]}'), res("REPAIRED")]
+    );
+    const runner = new TransformRunner(plugin);
+    const { response, verification } = await runner.run(makeEditor("memo body"), withModel);
+    assert.equal(verification?.status, "repaired");
+    assert.equal(verification?.repairedCount, 1);
+    assert.equal(gen.calls.length, 3);
+    assert.deepEqual(gen.optsLog, [
+      { model: "model-x" },
+      { model: "model-x" },
+      { model: "model-x" },
+    ]);
+    assert.equal(resolveCalls.length, 1);
+    assert.equal(response.text, "REPAIRED");
+  }
+);
+
+await checkAsync(
+  "verify failure is fail-open through run(): resolves with verify-failed, transform output intact",
+  async () => {
+    // Preservation contract: 검증 단계의 어떤 실패도 변환 결과를 잃게 하지
+    // 않는다 — the invariant is stated at run()'s boundary, so pin it there:
+    // a rejecting verify call must not reject run() (no generic-error rethrow).
+    const { plugin, gen } = makePlugin(
+      { ...DEFAULT_SETTINGS, verifyCompleteness: true },
+      [res("OUT"), new Error("verify down")]
+    );
+    const runner = new TransformRunner(plugin);
+    const { response, verification } = await runner.run(makeEditor("memo body"), TEMPLATE);
+    assert.equal(verification?.status, "verify-failed");
+    assert.equal(response.text, "OUT");
+    assert.equal(gen.calls.length, 2);
+  }
+);
 
 await checkAsync("toggle ON + [!git] note → skipped-git, chain not entered (one call)", async () => {
   // Real repo fixture, same pattern as probe-transform-preservation.mjs —
