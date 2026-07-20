@@ -7,6 +7,13 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [1.4.7] - 2026-07-20
+
+### Changed
+
+- **Minimum required Obsidian version is now 1.8.7** (previously 1.5.0). Language detection calls Obsidian's `getLanguage()` unconditionally instead of falling back to `window.localStorage` on older builds, which removes the plugin's only reference to local storage — it was a read of Obsidian's own language key and never a write, but the community-plugin review flags any use of it. If you are on an Obsidian build older than 1.8.7, you keep receiving ExcaVelo 1.4.6, which continues to work; nothing is uninstalled.
+- Dropped the `builtin-modules` build dependency in favour of `builtinModules` from Node's own `node:module`. Build output is byte-identical and there is no runtime change — one fewer third-party package in the build.
+
 ## [1.4.6] - 2026-07-19
 
 ### Changed
