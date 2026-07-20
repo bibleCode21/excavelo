@@ -30,11 +30,11 @@ approved-commit: 319e5ec0f498789090a2eeb1d89bf63ac1f52da7
 
 - 실행 조건: `verifyCompleteness && !gitLog`. 미충족 시 결과 상태 — gitLog 존재: `skipped-git`, 토글 OFF: 상태 없음(배지 미표시).
 - **검증 호출**: 입력 = 원본 메모(`rawBody`) + (`perNoteContext` 존재 시 포함) + (`transcript` 존재 시 전사 전문) + 변환 출력. 프로바이더·모델 = 변환과 동일(`resolveProvider(template)` 결과 재사용).
-- **누락 판정 대상** (검증 프롬프트가 핀): 원본 메모의 모든 사실 + (`transcript` 존재 시) 전사의 **수치·이름·날짜·결정에 한정** — 잡담·손상 구간·전사 전용 부연은 누락 대상이 아니다(기존 메모-우선·잡담-제외·비추측 규칙 상속). *(spec-review는 메모-한정을 권했으나, 전사 핵심 사실 포함은 사용자 결정 — 범주 한정으로 잡담-재주입 위험을 막는다.)*
+- **누락 판정 대상** (검증 프롬프트가 핀): 원본 메모의 모든 사실 + (`transcript` 존재 시) 전사의 **수치·이름·날짜·결정에 한정**(이름에서 화자 귀속은 제외 — STT 화자 라벨은 비신뢰) — 잡담·손상 구간·전사 전용 부연은 누락 대상이 아니다(기존 메모-우선·잡담-제외·비추측·화자-라벨-비신뢰 규칙 상속). *(spec-review는 메모-한정을 권했으나, 전사 핵심 사실 포함은 사용자 결정 — 범주 한정으로 잡담-재주입 위험을 막는다.)*
 - **검증 응답 계약**: JSON 단일 객체 `{"missing": string[]}`. 각 항목은 **출처 사실을 그대로 담은 자체-완결 진술**(원문 인용 수준)이어야 한다 — repair가 이 목록만으로 날조 없이 보수할 수 있는 수준. 파싱 = 코드펜스 스트립 후 `JSON.parse`; `missing`이 문자열 배열이 아니면 파싱 실패.
 - 분기:
   - `missing.length === 0` → 상태 `verified`.
-  - `missing.length > 0` → **repair 1회**: 입력 = 원본 메모(`rawBody`) + 변환 출력 + 누락 목록, 출력 = 수정본 전체. 유효(코드펜스 스트립 후 비어있지 않음) → 출력 교체, 상태 `repaired`(건수 포함). repair 호출 실패 또는 무효 출력 → 원 출력 유지, 상태 `verify-failed`.
+  - `missing.length > 0` → **repair 1회**: 입력 = 원본 메모(`rawBody`) + 변환 출력 + 누락 목록, 출력 = 수정본 전체. 유효(코드펜스 스트립 후 비어있지 않음) → 스트립된 출력으로 교체, 상태 `repaired`(건수 포함). repair 호출 실패 또는 무효 출력 → 원 출력 유지, 상태 `verify-failed`.
   - 검증 호출 실패·파싱 실패 → 상태 `verify-failed`, repair 없음.
 
 **UI**: 프리뷰 모달에 상태별 i18n 배지(en/ko). 토큰·비용 메타는 체인 전 호출 합산. 상태바 busy는 기존 위치 그대로 체인 전체를 덮는다.
@@ -44,7 +44,7 @@ approved-commit: 319e5ec0f498789090a2eeb1d89bf63ac1f52da7
 - 검증·보수 경로의 실패는 `run()` 밖으로 예외를 전파하지 않는다.
 - 검증·보수는 변환과 동일 프로바이더·모델을 쓴다.
 
-**검증 수단**: `scripts/probe-verify-chain.mjs` — verify 응답 파싱(정상/펜스/비JSON/형 불일치), 체인 분기(verified/repaired/verify-failed/skip), repair 무효-출력 가드, 검증·repair 프롬프트 조립(누락 판정 대상 한정 문구, repair 입력에 rawBody 포함)을 단언하는 프로브(기존 `probe-git-log.mjs` 관례).
+**검증 수단**: `scripts/probe-verify-chain.mjs` — verify 응답 파싱(정상/펜스/비JSON/형 불일치), 체인 분기(verified/repaired/verify-failed/skip), repair 무효-출력 가드, 검증·repair 프롬프트 조립(누락 판정 대상 한정 문구, repair 입력에 rawBody 포함)을 단언하는 프로브(기존 `probe-git-log.mjs` 관례). 보존 안전망 = `scripts/probe-transform-preservation.mjs`(Trigger 3 특성화, 구현 후 무수정 green 의무). `scripts/probe-settings-tab.mjs`는 토글 추가로 "exactly 2 toggles" 단언이 3으로 이동해야 하므로 surface에 포함. 프리뷰 배지 렌더링은 seam 부재로 manual QA(사용자 승인 판정 — 스텁 인프라 미구축).
 
 - allowed-surface:
   - src/core/verify.ts
@@ -58,6 +58,8 @@ approved-commit: 319e5ec0f498789090a2eeb1d89bf63ac1f52da7
   - src/i18n/ko.ts
   - styles.css
   - scripts/probe-verify-chain.mjs
+  - scripts/probe-transform-preservation.mjs
+  - scripts/probe-settings-tab.mjs
   - docs/prd.md
   - docs/specs/completeness-verify-chain.md
 - refactor-scope:
