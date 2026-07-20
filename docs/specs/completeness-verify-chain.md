@@ -1,7 +1,7 @@
 ---
 status: confirmed
 ceremony: standard
-approved-commit: 319e5ec0f498789090a2eeb1d89bf63ac1f52da7
+approved-commit: 897a6f203bf2646ad686b18610fc311001f4fafc
 ---
 # Completeness verify chain — 변환→검증→조건부 보수 3단 프롬프트 체인
 
