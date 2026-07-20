@@ -1088,9 +1088,12 @@ check("manifest minAppVersion is 1.8.7 (minappversion-187 SC1; supersedes settin
   // Forward pointers. Raising the floor to 1.8.7 let src/i18n call
   // getLanguage() unconditionally, which retired clauses in three *confirmed*
   // contracts. None of them is edited — editing a confirmed contract voids its
-  // confirmation — so this pin is where the supersede is recorded:
+  // confirmation:
   //
-  //   · settings-dual-path SC1 — pinned minAppVersion to "1.5.0".
+  //   · settings-dual-path SC1 — pinned minAppVersion to "1.5.0". Recorded
+  //     properly in minappversion-187 §"이전 계약 supersede", which also
+  //     retires that contract's SC2 and SC5 preamble; read there for the full
+  //     account. Restated here only because this pin is the SC1 literal.
   //   · api-lint-parity-wu3 AC1 — specified the i18n
   //     requireApiVersion("1.8.7") dual-path branch that is now gone. Its two
   //     supporting notes go with it: the prefer-get-language warning it
