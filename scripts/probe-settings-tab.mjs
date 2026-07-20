@@ -1081,11 +1081,19 @@ check("update-starter button below 1.13 gets mod-warning class instead of setDes
 // was one site, but §Spec "refresh() 헬퍼" swaps all four); mod-warning
 // absence on the 1.13+ path (Preservation 1); I2 on the fallback path. -------
 
-check("manifest minAppVersion is 1.5.0 (settings-dual-path SC1)", () => {
+check("manifest minAppVersion is 1.8.7 (minappversion-187 SC1, supersedes settings-dual-path SC1)", () => {
   // `version` is deliberately not pinned — version-bump.mjs rewrites it at
   // release; minAppVersion is the load-bearing value for the dual-path design.
+  //
+  // 1.8.7 is getLanguage()'s @since, and src/i18n calls it unconditionally.
+  // Lowering this value alone does not fail loudly at runtime: getLanguage is
+  // undefined on older builds, the TypeError is swallowed by detectLocale()'s
+  // existing catch, and non-English users silently fall back to "en". Lower it
+  // only together with restoring the localStorage fallback — the two move as
+  // one unit (minappversion-187 I5). `no-unsupported-api` also errors on that
+  // combination, so lint catches it too.
   const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, "manifest.json"), "utf8"));
-  assert.equal(manifest.minAppVersion, "1.5.0");
+  assert.equal(manifest.minAppVersion, "1.8.7");
 });
 
 check("display() empties the container before creating any rows (§Spec display() step 1)", () => {

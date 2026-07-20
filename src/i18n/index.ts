@@ -3,9 +3,8 @@
  *
  * Locale detection (in order):
  *   1. The plugin-level language setting, when not "auto".
- *   2. Obsidian's `getLanguage()` (>=1.8.7) — the app's own UI language
- *      setting; below that, `window.localStorage.getItem("language")` reads
- *      the same underlying value (minAppVersion is 1.5.0, pre-getLanguage()).
+ *   2. Obsidian's `getLanguage()` — the app's own UI language setting. Called
+ *      unconditionally: its `@since` is 1.8.7, which is also minAppVersion.
  *   3. `navigator.language` (first two letters) — best-effort fallback.
  *   4. `"en"` — final fallback.
  *
@@ -14,7 +13,7 @@
  * plugins) for those to update — other UI strings follow immediately.
  */
 
-import { getLanguage, requireApiVersion } from "obsidian";
+import { getLanguage } from "obsidian";
 import en from "./en";
 import ko from "./ko";
 
@@ -32,10 +31,7 @@ export function setLocaleOverride(v: "auto" | "en" | "ko"): void {
 function detectLocale(): string {
   if (localeOverride) return localeOverride;
   try {
-    // obsidianmd/prefer-get-language flags the line below regardless of the guard;
-    // eslint-disable comments cannot silence obsidianmd/* rules (eslint-comments/no-restricted-disable).
-    // The fallback is required for <1.8.7 (minAppVersion is 1.5.0); getLanguage() is used above that version.
-    const raw = requireApiVersion("1.8.7") ? getLanguage() : window.localStorage.getItem("language");
+    const raw = getLanguage();
     if (raw && dicts[raw]) return raw;
     const nav = (navigator.language || "en").toLowerCase().split("-")[0];
     if (dicts[nav]) return nav;
