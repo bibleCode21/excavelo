@@ -1,6 +1,7 @@
 ---
 status: confirmed
 ceremony: standard
+approved-commit: 684e3c07a952fb1ec917a7f9c34de37759d1b606
 ---
 # minAppVersion 1.8.7 상향 — i18n localStorage 폴백 제거
 
