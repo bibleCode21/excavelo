@@ -1081,15 +1081,26 @@ check("update-starter button below 1.13 gets mod-warning class instead of setDes
 // was one site, but §Spec "refresh() 헬퍼" swaps all four); mod-warning
 // absence on the 1.13+ path (Preservation 1); I2 on the fallback path. -------
 
-check("manifest minAppVersion is 1.8.7 (minappversion-187 SC1, supersedes settings-dual-path SC1 + api-lint-parity-wu3 AC1)", () => {
+check("manifest minAppVersion is 1.8.7 (minappversion-187 SC1; supersedes settings-dual-path SC1, api-lint-parity-wu3 AC1, eslint-obsidianmd-recommended-migration SC1)", () => {
   // `version` is deliberately not pinned — version-bump.mjs rewrites it at
   // release; minAppVersion is the load-bearing value for the dual-path design.
   //
-  // Also supersedes api-lint-parity-wu3 AC1, which specified the i18n
-  // requireApiVersion("1.8.7") dual-path branch that minappversion-187 removed.
-  // That contract is confirmed and pinned, so it is not edited (editing voids
-  // confirmation) — this is the forward pointer for anyone who lands on its
-  // AC1 and wonders why the guard is gone.
+  // Forward pointers. Raising the floor to 1.8.7 let src/i18n call
+  // getLanguage() unconditionally, which retired clauses in three *confirmed*
+  // contracts. None of them is edited — editing a confirmed contract voids its
+  // confirmation — so this pin is where the supersede is recorded:
+  //
+  //   · settings-dual-path SC1 — pinned minAppVersion to "1.5.0".
+  //   · api-lint-parity-wu3 AC1 — specified the i18n
+  //     requireApiVersion("1.8.7") dual-path branch that is now gone. Its two
+  //     supporting notes go with it: the prefer-get-language warning it
+  //     accepted with an explanatory comment is resolved rather than accepted
+  //     (both warning and comment are gone), and the requireApiVersion stub it
+  //     added to the probes for that import is now unreferenced by i18n.
+  //   · eslint-obsidianmd-recommended-migration SC1 — asserted "error 0,
+  //     exactly 4 warnings" and enumerated prefer-get-language on
+  //     i18n/index.ts as one of the four. That warning is the one this work
+  //     removed, so the standing baseline is 0 errors / 3 warnings.
   //
   // 1.8.7 is getLanguage()'s @since, and src/i18n calls it unconditionally.
   // Lowering this value alone does not fail loudly at runtime: getLanguage is
