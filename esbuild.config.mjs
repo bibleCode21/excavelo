@@ -1,6 +1,6 @@
 import esbuild from "esbuild";
 import process from "process";
-import builtins from "builtin-modules";
+import { builtinModules } from "node:module";
 
 const banner = `/*
  * This is a generated file. Do not modify.
@@ -28,8 +28,8 @@ const context = await esbuild.context({
     "@lezer/common",
     "@lezer/highlight",
     "@lezer/lr",
-    ...builtins,
-    ...builtins.map((m) => `node:${m}`),
+    ...builtinModules,
+    ...builtinModules.map((m) => `node:${m}`),
   ],
   format: "cjs",
   target: "es2020",
