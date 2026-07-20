@@ -35,6 +35,12 @@ const ko: Record<string, string> = {
   "preview.tooltip.copy": "응답 텍스트를 시스템 클립보드에 복사합니다. 파일은 변경되지 않습니다.",
   "preview.tooltip.discard": "응답을 저장하지 않고 닫습니다.",
 
+  // Completeness verify chain badges
+  "verify.badge.verified": "완전성 확인 — 누락 0건",
+  "verify.badge.repaired": "누락 {count}건 보수됨",
+  "verify.badge.verify-failed": "완전성 검증 실패 — 변환 결과는 그대로",
+  "verify.badge.skipped-git": "[!git] 노트에는 검증 미적용",
+
   // OnboardingModal
   "onboarding.title": "ExcaVelo 설정",
   "onboarding.intro": "플러그인이 Claude 와 어떻게 통신할지 선택하세요. 나중에 설정에서 변경할 수 있습니다.",
@@ -138,6 +144,9 @@ const ko: Record<string, string> = {
   "settings.status-bar.desc": "사용 정보가 표시되는 작은 상태 항목을 보여줍니다.",
   "settings.show-cost.name": "미리보기에 비용 표시",
   "settings.show-cost.desc": "토큰 사용량과 비용을 표시합니다 (공급자가 보고하는 경우).",
+  "settings.verify.name": "완전성 검증",
+  "settings.verify.desc":
+    "변환 후 LLM 검증 패스가 누락된 사실을 점검하고 보수합니다 (최대 2회 추가 호출, [!git] 노트는 제외).",
 
   // Notices
   "notice.open-note-first": "먼저 노트를 여세요.",

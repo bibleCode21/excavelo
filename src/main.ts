@@ -291,7 +291,7 @@ export default class ExcaveloPlugin extends Plugin {
 
   private async transformAndPreview(editor: Editor, template: Template): Promise<void> {
     try {
-      const { response, transformContext } = await this.runner.run(editor, template);
+      const { response, transformContext, verification } = await this.runner.run(editor, template);
       const file = this.app.workspace.getActiveFile();
       const isoDate = new Date().toISOString().slice(0, 10);
       const slug = file ? this.slugify(file.basename) : "memo";
@@ -309,7 +309,8 @@ export default class ExcaveloPlugin extends Plugin {
         suggestedSavePath,
         (action, ctx) => {
           void this.handlePreviewAction(action, ctx, editor, template, response.text, mapping.frontmatterPreset);
-        }
+        },
+        verification
       ).open();
     } catch (err) {
       // Notice already surfaced by runner; nothing else to do.

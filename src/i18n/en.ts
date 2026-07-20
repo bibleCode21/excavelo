@@ -35,6 +35,12 @@ const en: Record<string, string> = {
   "preview.tooltip.copy": "Copy the response text to the system clipboard. No files change.",
   "preview.tooltip.discard": "Close without saving the response anywhere.",
 
+  // Completeness verify chain badges
+  "verify.badge.verified": "Completeness verified — nothing missing",
+  "verify.badge.repaired": "Completeness: {count} missing fact(s) repaired",
+  "verify.badge.verify-failed": "Completeness check failed — output unchanged",
+  "verify.badge.skipped-git": "Completeness check not applied to [!git] notes",
+
   // OnboardingModal
   "onboarding.title": "ExcaVelo setup",
   "onboarding.intro": "Choose how the plugin should talk to Claude. You can change this later in settings.",
@@ -139,6 +145,9 @@ const en: Record<string, string> = {
   "settings.status-bar.desc": "Show a small status item with usage info.",
   "settings.show-cost.name": "Show cost in preview",
   "settings.show-cost.desc": "Display token usage and cost (when reported by the provider).",
+  "settings.verify.name": "Verify completeness",
+  "settings.verify.desc":
+    "After each transform, a second LLM pass checks the output for missing facts and repairs them (up to 2 extra calls; [!git] notes are skipped).",
 
   // Notices
   "notice.open-note-first": "Open a note first.",

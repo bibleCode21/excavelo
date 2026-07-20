@@ -555,6 +555,18 @@ export class ExcaveloSettingTab extends PluginSettingTab {
             );
           },
         },
+        {
+          name: t("settings.verify.name"),
+          desc: t("settings.verify.desc"),
+          render: (setting) => {
+            setting.addToggle((tt) =>
+              tt.setValue(this.plugin.settings.verifyCompleteness).onChange(async (v) => {
+                this.plugin.settings.verifyCompleteness = v;
+                await this.plugin.saveSettings();
+              })
+            );
+          },
+        },
       ],
     };
   }

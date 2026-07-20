@@ -535,17 +535,19 @@ await checkAsync("default-context textarea onChange writes settings.defaultConte
   assert.equal(plugin.__probe.saveSettingsCalls.length, 1);
 });
 
-await checkAsync("status-bar / show-cost toggles write their settings independently", async () => {
+await checkAsync("status-bar / show-cost / verify toggles write their settings independently", async () => {
   const plugin = makeFakePlugin();
   const tab = new ExcaveloSettingTab({}, plugin);
   renderTab(tab);
   const toggles = mod.createdSettings.filter((r) => ctrl(r, "toggle"));
-  assert.equal(toggles.length, 2, "expected exactly 2 toggles (status bar, show cost)");
+  assert.equal(toggles.length, 3, "expected exactly 3 toggles (status bar, show cost, verify completeness)");
   await ctrl(toggles[0], "toggle").onChangeFn(false);
   await ctrl(toggles[1], "toggle").onChangeFn(false);
+  await ctrl(toggles[2], "toggle").onChangeFn(false);
   assert.equal(plugin.settings.showStatusBar, false);
   assert.equal(plugin.settings.showCostInPreview, false);
-  assert.equal(plugin.__probe.saveSettingsCalls.length, 2);
+  assert.equal(plugin.settings.verifyCompleteness, false);
+  assert.equal(plugin.__probe.saveSettingsCalls.length, 3);
 });
 
 await checkAsync("open-templates-folder / restore-starter / update-starter buttons fire their plugin calls", async () => {

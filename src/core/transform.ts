@@ -1,10 +1,11 @@
 import { Editor, Notice } from "obsidian";
 import type ExcaveloPlugin from "../main";
 import type { LlmProvider } from "../llm/llm";
-import type { LlmResponse, Template, TransformContext } from "../types";
+import type { LlmResponse, Template, TransformContext, VerificationResult } from "../types";
 import { extractContext, getNoteText } from "./context";
 import { buildPrompt } from "./prompt";
 import { loadGitLog } from "./git-log";
+import { runVerifyChain } from "./verify";
 import { t } from "../i18n";
 
 /**
@@ -18,6 +19,7 @@ export class TransformRunner {
   async run(editor: Editor, template: Template): Promise<{
     response: LlmResponse;
     transformContext: TransformContext;
+    verification: VerificationResult | null;
   }> {
     const noteText = getNoteText(editor);
     if (!noteText.trim()) {
@@ -53,7 +55,21 @@ export class TransformRunner {
         promptInput,
         template.model ? { model: template.model } : undefined
       );
-      return { response, transformContext };
+      // Verify→repair chain (docs/specs/completeness-verify-chain.md).
+      // [!git] notes skip it: selection-criteria memo items would be
+      // misjudged as misses and repaired into fabricated entries.
+      let verification: VerificationResult | null = null;
+      if (this.plugin.settings.verifyCompleteness) {
+        verification = gitLog
+          ? { status: "skipped-git" }
+          : await runVerifyChain(
+              (input) =>
+                provider.generate(input, template.model ? { model: template.model } : undefined),
+              transformContext,
+              response
+            );
+      }
+      return { response, transformContext, verification };
     } catch (err) {
       new Notice(t("notice.error-generic", { detail: (err as Error).message }));
       throw err;

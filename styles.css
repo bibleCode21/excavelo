@@ -55,6 +55,23 @@
   border-radius: 6px;
   background-color: var(--background-secondary);
 }
+.excavelo-preview-modal .verify-badge {
+  font-size: 0.85em;
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+.excavelo-preview-modal .verify-badge.verify-verified {
+  color: var(--color-green);
+}
+.excavelo-preview-modal .verify-badge.verify-repaired {
+  color: var(--color-orange);
+}
+.excavelo-preview-modal .verify-badge.verify-verify-failed {
+  color: var(--color-red);
+}
+.excavelo-preview-modal .verify-badge.verify-skipped-git {
+  color: var(--text-muted);
+}
 .excavelo-preview-modal .preview-meta {
   font-size: 0.85em;
   color: var(--text-muted);

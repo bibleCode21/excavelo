@@ -25,5 +25,6 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   templatesFolder: "excaVelo/templates",
   showStatusBar: true,
   showCostInPreview: true,
+  verifyCompleteness: true,
   hasCompletedOnboarding: false,
 };

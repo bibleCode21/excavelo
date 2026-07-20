@@ -1,6 +1,6 @@
 import { App, Component, MarkdownRenderer, Modal, Setting, setTooltip } from "obsidian";
 import type ExcaveloPlugin from "../main";
-import type { LlmResponse, Template, TransformContext } from "../types";
+import type { LlmResponse, Template, TransformContext, VerificationResult } from "../types";
 import { t } from "../i18n";
 
 export type PreviewAction =
@@ -30,7 +30,8 @@ export class PreviewModal extends Modal {
     private response: LlmResponse,
     private transformContext: TransformContext,
     private suggestedSavePath: string,
-    private onAction: (action: PreviewAction, ctx: PreviewActionContext) => void
+    private onAction: (action: PreviewAction, ctx: PreviewActionContext) => void,
+    private verification: VerificationResult | null = null
   ) {
     super(app);
     this.modalEl.addClass("excavelo-preview-modal");
@@ -41,6 +42,15 @@ export class PreviewModal extends Modal {
     const { contentEl } = this;
     contentEl.addClass("excavelo-preview-content");
     contentEl.createEl("h3", { text: t("preview.title", { template: this.template.name }) });
+
+    if (this.verification) {
+      contentEl.createDiv({
+        cls: `verify-badge verify-${this.verification.status}`,
+        text: t(`verify.badge.${this.verification.status}`, {
+          count: String(this.verification.repairedCount ?? 0),
+        }),
+      });
+    }
 
     const bodyEl = contentEl.createDiv({ cls: "preview-body" });
     void MarkdownRenderer.render(

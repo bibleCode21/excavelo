@@ -41,6 +41,8 @@ export interface PluginSettings {
 
   showStatusBar: boolean;
   showCostInPreview: boolean;
+  /** Run the verify→repair completeness chain after each transform. */
+  verifyCompleteness: boolean;
   hasCompletedOnboarding: boolean;
 }
 
@@ -101,6 +103,26 @@ export interface LlmResponse {
   outputTokens?: number;
   costUsd?: number;
   modelUsed?: string;
+}
+
+/**
+ * Outcome of the completeness verify→repair chain
+ * (docs/specs/completeness-verify-chain.md).
+ *
+ * - `verified` — verify pass found nothing missing.
+ * - `repaired` — verify listed misses; one repair call reinserted them
+ *   (`repairedCount`).
+ * - `verify-failed` — verify/repair errored, unparseable, or repair output
+ *   was degenerate; the original transform output is kept (fail-open).
+ * - `skipped-git` — [!git] notes skip the chain (selection-criteria items
+ *   would be misjudged as misses and repaired into fabrications).
+ */
+export type VerificationStatus = "verified" | "repaired" | "verify-failed" | "skipped-git";
+
+export interface VerificationResult {
+  status: VerificationStatus;
+  /** Number of missing facts the repair call reinserted (repaired only). */
+  repairedCount?: number;
 }
 
 export interface WikiConfig {
