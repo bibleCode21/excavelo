@@ -1081,9 +1081,15 @@ check("update-starter button below 1.13 gets mod-warning class instead of setDes
 // was one site, but §Spec "refresh() 헬퍼" swaps all four); mod-warning
 // absence on the 1.13+ path (Preservation 1); I2 on the fallback path. -------
 
-check("manifest minAppVersion is 1.8.7 (minappversion-187 SC1, supersedes settings-dual-path SC1)", () => {
+check("manifest minAppVersion is 1.8.7 (minappversion-187 SC1, supersedes settings-dual-path SC1 + api-lint-parity-wu3 AC1)", () => {
   // `version` is deliberately not pinned — version-bump.mjs rewrites it at
   // release; minAppVersion is the load-bearing value for the dual-path design.
+  //
+  // Also supersedes api-lint-parity-wu3 AC1, which specified the i18n
+  // requireApiVersion("1.8.7") dual-path branch that minappversion-187 removed.
+  // That contract is confirmed and pinned, so it is not edited (editing voids
+  // confirmation) — this is the forward pointer for anyone who lands on its
+  // AC1 and wonders why the guard is gone.
   //
   // 1.8.7 is getLanguage()'s @since, and src/i18n calls it unconditionally.
   // Lowering this value alone does not fail loudly at runtime: getLanguage is
