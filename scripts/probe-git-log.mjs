@@ -513,7 +513,7 @@ check("duplicates collapsed", () => {
  * assertions do not pin behavior that is the deliverable to remove.
  */
 /**
- * expandHome (deferred-followups item 4). `~` and `~/...` are the only forms
+ * expandHome (deferred-followups item 6). `~` and `~/...` are the only forms
  * this project resolves (the current user's home); `~user` is a different
  * user's home and this codebase has no way to look that up. Before the fix,
  * the guard only checked for a leading `~` and blindly concatenated
