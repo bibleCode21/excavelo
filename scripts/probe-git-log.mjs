@@ -447,7 +447,7 @@ const hasSubject = (text, subject) =>
 const countOf = (text, needle) => text.split(needle).length - 1;
 
 const mod = loadModule();
-const { parseGitSpec, branchCandidates, loadGitLog, buildPrompt, STARTER_TEMPLATES, t } = mod;
+const { parseGitSpec, branchCandidates, expandHome, loadGitLog, buildPrompt, STARTER_TEMPLATES, t } = mod;
 
 console.log("parseGitSpec");
 
@@ -512,6 +512,37 @@ check("duplicates collapsed", () => {
  * match — upstream of the commit selection this contract replaces, so these
  * assertions do not pin behavior that is the deliverable to remove.
  */
+/**
+ * expandHome (deferred-followups item 4). `~` and `~/...` are the only forms
+ * this project resolves (the current user's home); `~user` is a different
+ * user's home and this codebase has no way to look that up. Before the fix,
+ * the guard only checked for a leading `~` and blindly concatenated
+ * `homedir() + p.slice(1)` — for `~evil` that glues "evil" straight onto the
+ * end of the home directory with no separator, silently producing a bogus
+ * sibling-ish path instead of leaving the unsupported syntax alone.
+ */
+console.log("expandHome");
+
+check("no ~ prefix passes through unchanged", () => {
+  assert.equal(expandHome("/abs/path"), "/abs/path");
+});
+
+check("~ alone expands to the home directory", () => {
+  assert.equal(expandHome("~"), os.homedir());
+});
+
+check("~/... expands relative to the home directory", () => {
+  assert.equal(expandHome("~/work"), `${os.homedir()}/work`);
+});
+
+check("~user (unsupported) is left untouched, not mangled onto homedir()", () => {
+  assert.equal(expandHome("~evil"), "~evil");
+});
+
+check("~user/sub (unsupported) is likewise left untouched", () => {
+  assert.equal(expandHome("~evil/sub"), "~evil/sub");
+});
+
 console.log("globMatch (via loadGitLog branches: filter)");
 
 const repo = buildFixture();

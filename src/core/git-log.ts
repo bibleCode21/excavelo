@@ -217,10 +217,13 @@ function runGit(args: string[]): Promise<{ code: number | null; stdout: string; 
   })();
 }
 
-function expandHome(p: string): string {
-  if (!p.startsWith("~")) return p;
+/** Only `~` and `~/...` resolve (the current user's home) — `~user` names a
+ * different user's home, which this codebase has no way to look up, so it is
+ * left untouched rather than glued onto homedir() with no separator. */
+export function expandHome(p: string): string {
+  if (p !== "~" && !p.startsWith("~/")) return p;
   const { os } = nodeApis();
-  return os.homedir() + p.slice(1);
+  return p === "~" ? os.homedir() : os.homedir() + p.slice(1);
 }
 
 /**
