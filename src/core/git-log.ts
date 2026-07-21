@@ -448,6 +448,21 @@ function logArgs(repoPath: string, since: string | null, until: string | null): 
   ];
 }
 
+/**
+ * `--- ` at the start of a line is reserved for this file's own section
+ * headers (`--- landed ...`, `--- not yet on ...`), always prepended outside
+ * this function — git's own output can never legitimately start a line with
+ * it. A commit belongs to whichever repository a [!git] callout names, so
+ * its subject/body is rendered verbatim and out of this codebase's control;
+ * prompt.ts tells the LLM a landed section wins over a not-yet-landed one for
+ * the same work, so an unescaped `--- landed` line planted in a commit body
+ * could make unshipped work read as shipped. Escaping here, the one choke
+ * point every commit-rendering call passes through, closes it everywhere.
+ */
+function escapeMarkerLines(text: string): string {
+  return text.replace(/^--- /gm, "\\--- ");
+}
+
 /** Runs one rendering `git log`, mapping every failure onto the git.failed contract. */
 async function runLog(args: string[], spec: GitSpec): Promise<string> {
   let result;
@@ -460,7 +475,7 @@ async function runLog(args: string[], spec: GitSpec): Promise<string> {
     const detail = result.stderr.trim().split("\n")[0] ?? "";
     throw new Error(t("git.failed", { path: spec.path, error: detail }));
   }
-  return result.stdout.trim();
+  return escapeMarkerLines(result.stdout.trim());
 }
 
 /** One `--- landed` section per landing that has commits to show. */
