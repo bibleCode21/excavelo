@@ -50,12 +50,10 @@ export class TransformRunner {
     const promptInput = buildPrompt(transformContext);
     const provider = await this.plugin.resolveProvider(template);
 
+    const genOpts = template.model ? { model: template.model } : undefined;
     this.plugin.setStatusBusy(true);
     try {
-      const response = await provider.generate(
-        promptInput,
-        template.model ? { model: template.model } : undefined
-      );
+      const response = await provider.generate(promptInput, genOpts);
       // Verify→repair chain (docs/specs/completeness-verify-chain.md).
       // [!git] notes skip it: selection-criteria memo items would be
       // misjudged as misses and repaired into fabricated entries.
@@ -66,8 +64,7 @@ export class TransformRunner {
         verification = gitLog
           ? { status: "skipped-git" }
           : await runVerifyChain(
-              (input) =>
-                provider.generate(input, template.model ? { model: template.model } : undefined),
+              (input) => provider.generate(input, genOpts),
               transformContext,
               response
             );
