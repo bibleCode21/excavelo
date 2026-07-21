@@ -315,6 +315,16 @@ async function enumerateBranches(repoPath: string): Promise<BranchRef[]> {
 }
 
 /**
+ * A branch is selected when either name form — `display` or the `ref` git
+ * log itself accepts — satisfies `test`. Both selection modes in loadGitLog
+ * (a `branches:` glob, pasted names from the memo) share exactly this shape;
+ * only what `test` checks differs between them.
+ */
+function selectBranches(branches: BranchRef[], test: (name: string) => boolean): BranchRef[] {
+  return branches.filter((b) => test(b.display) || test(b.ref));
+}
+
+/**
  * The repo's default branch (origin/HEAD or a main/master fallback), if any.
  * This is what work has to land on to count as done; without it there is
  * nothing to source from and the caller falls back to a plain HEAD log.
@@ -646,8 +656,9 @@ export async function loadGitLog(specs: string[], memoText = ""): Promise<string
 
     if (spec.branches) {
       const glob = spec.branches;
-      const match = (name: string | null) => name !== null && globMatch(name, glob);
-      selectedBranches = branches.filter((b) => globMatch(b.display, glob) || globMatch(b.ref, glob));
+      const test = (name: string) => globMatch(name, glob);
+      const match = (name: string | null) => name !== null && test(name);
+      selectedBranches = selectBranches(branches, test);
       if (selectedBranches.length === 0 && !landings.some((l) => match(l.branch))) {
         throw new Error(t("git.no-branches", { glob: spec.branches, path: spec.path }));
       }
@@ -655,10 +666,9 @@ export async function loadGitLog(specs: string[], memoText = ""): Promise<string
       note = `, branches ${spec.branches}`;
     } else if (candidates.length > 0) {
       const wanted = new Set(candidates.map((c) => c.toLowerCase()));
-      const match = (name: string | null) => name !== null && wanted.has(name.toLowerCase());
-      selectedBranches = branches.filter(
-        (b) => wanted.has(b.display.toLowerCase()) || wanted.has(b.ref.toLowerCase())
-      );
+      const test = (name: string) => wanted.has(name.toLowerCase());
+      const match = (name: string | null) => name !== null && test(name);
+      selectedBranches = selectBranches(branches, test);
       if (selectedBranches.length > 0 || landings.some((l) => match(l.branch))) {
         hit = match;
         note = ", branches named in the memo";

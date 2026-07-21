@@ -217,6 +217,37 @@ function buildFixture() {
 }
 
 /**
+ * A branch that exists only as a remote-tracking ref, with no same-named
+ * local branch: enumerateBranches strips the "origin/" prefix for `display`
+ * but keeps it in `ref` (git-log.ts:307-312) — the one shape where
+ * selectBranches's two fields actually diverge. Every branch buildFixture()
+ * and the other fixtures below create is local-only, so display === ref
+ * there and no existing check can tell a correct `test(b.display) ||
+ * test(b.ref)` apart from a regression that drops one side or tests the
+ * wrong field. update-ref plants the ref directly; no real remote is needed
+ * for for-each-ref to see it.
+ */
+function buildRemoteTrackingFixture() {
+  const repo = path.join(tmp, "remote-tracking");
+  fs.mkdirSync(repo);
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  const git = makeGit(repo);
+  fs.writeFileSync(path.join(repo, "README"), "base\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", "base"], at("2024-01-01T12:00:00Z"));
+
+  const tree = git(["rev-parse", "main^{tree}"]).trim();
+  const base = git(["rev-parse", "main"]).trim();
+  const tip = git(
+    ["commit-tree", tree, "-p", base, "-m", "work on feature/remote-only"],
+    at("2024-01-02T12:00:00Z")
+  ).trim();
+  git(["update-ref", "refs/remotes/origin/feature/remote-only", tip]);
+
+  return repo;
+}
+
+/**
  * A11's fixture: more than MAX_BRANCHES named merge landings, oldest first, so
  * feature/n1's landing sits well outside the 50 most recent. Built with
  * commit-tree rather than checkout/merge — same shape, a fraction of the git
@@ -577,6 +608,68 @@ for (const [name, glob, expected] of globCases) {
   }
   check(name, () => assert.equal(actual, expected, `glob ${glob}: expected match=${expected}`));
 }
+
+/**
+ * selectBranches (git-log.ts:317-324, `branches.filter((b) => test(b.display)
+ * || test(b.ref))`) is shared by both loadGitLog call sites. Every branch
+ * used above and below is local-only, where display === ref, so none of that
+ * coverage can distinguish a correct `test(b.display) || test(b.ref)` from a
+ * regression that drops one side of the `||` or tests the wrong field for
+ * either call site — both would keep every other check green. A
+ * remote-tracking-only branch (display "feature/remote-only", ref
+ * "origin/feature/remote-only") is the one shape that splits the two fields;
+ * whether it is selected shows up as a "not yet on main branch: ..." section,
+ * since selectedBranches feeds loadNotLandedSections directly.
+ */
+console.log("selectBranches: display vs ref divergence (remote-tracking branch)");
+
+const remoteRepo = buildRemoteTrackingFixture();
+const UNLANDED_HEADER = "--- not yet on main branch: feature/remote-only";
+// Mirrors `matches` above: a selection that drops to zero throws
+// git.no-branches in glob mode, which must fail the check, not crash the probe.
+const tryLoad = async (specs, memo) => {
+  try {
+    return await loadGitLog(specs, memo);
+  } catch (e) {
+    return `<threw: ${e.message}>`;
+  }
+};
+
+const remoteGlobRefOnly = await tryLoad([`${remoteRepo} since:2024-01-01 branches:origin/feature/*`]);
+const remoteGlobDisplayOnly = await tryLoad([`${remoteRepo} since:2024-01-01 branches:feature/remote-only`]);
+const remotePastedRefOnly = await tryLoad(
+  [`${remoteRepo} since:2024-01-01`],
+  "picked up origin/feature/remote-only"
+);
+const remotePastedDisplayOnly = await tryLoad([`${remoteRepo} since:2024-01-01`], "picked up feature/remote-only");
+
+check("glob mode: a glob matching only the ref (origin/feature/*) still selects", () => {
+  assert.ok(
+    remoteGlobRefOnly.includes(UNLANDED_HEADER),
+    `selectBranches's "|| test(b.ref)" side is not being exercised; got: ${remoteGlobRefOnly}`
+  );
+});
+
+check("glob mode: a glob matching only the display name (no origin/ prefix) still selects", () => {
+  assert.ok(
+    remoteGlobDisplayOnly.includes(UNLANDED_HEADER),
+    `selectBranches's "test(b.display)" side is not being exercised; got: ${remoteGlobDisplayOnly}`
+  );
+});
+
+check("pasted-candidates mode: a pasted ref-form name (origin/feature/remote-only) still selects", () => {
+  assert.ok(
+    remotePastedRefOnly.includes(UNLANDED_HEADER),
+    `selectBranches's "|| test(b.ref)" side is not being exercised; got: ${remotePastedRefOnly}`
+  );
+});
+
+check("pasted-candidates mode: a pasted display-form name (feature/remote-only) still selects", () => {
+  assert.ok(
+    remotePastedDisplayOnly.includes(UNLANDED_HEADER),
+    `selectBranches's "test(b.display)" side is not being exercised; got: ${remotePastedDisplayOnly}`
+  );
+});
 
 /**
  * The landing traversal. WINDOW spans every landing's committer date
