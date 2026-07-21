@@ -1,6 +1,7 @@
 ---
 status: confirmed
 ceremony: trivial
+approved-commit: 4acd562d055462a11d3adec80f05361cff14d110
 ---
 # Dedup branch-selection matching in loadGitLog
 
