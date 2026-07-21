@@ -1,6 +1,7 @@
 ---
 status: confirmed
 ceremony: trivial
+approved-commit: 7846a122ec177dd77836ce4848943534e2157704
 ---
 # Dedup prompt-format label() helper
 
