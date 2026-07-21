@@ -1,4 +1,5 @@
 import type { LlmResponse, PromptInput, TransformContext, VerificationResult } from "../types";
+import { label } from "./prompt-format";
 
 /**
  * Completeness verify→repair chain (docs/specs/completeness-verify-chain.md).
@@ -168,8 +169,4 @@ function addUsage(into: LlmResponse, from: LlmResponse): void {
   if (from.outputTokens !== undefined)
     into.outputTokens = (into.outputTokens ?? 0) + from.outputTokens;
   if (from.costUsd !== undefined) into.costUsd = (into.costUsd ?? 0) + from.costUsd;
-}
-
-function label(s: string): string {
-  return `=== ${s} ===`;
 }

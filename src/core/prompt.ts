@@ -1,4 +1,5 @@
 import type { PromptInput, TransformContext } from "../types";
+import { label } from "./prompt-format";
 
 /**
  * Assembles the final prompt as a structured {system, user} pair.
@@ -70,8 +71,4 @@ export function buildPrompt(ctx: TransformContext): PromptInput {
   userSections.push(label("OUTPUT RULES"), rules.join("\n"));
 
   return { system, user: userSections.join("\n\n") };
-}
-
-function label(s: string): string {
-  return `=== ${s} ===`;
 }
