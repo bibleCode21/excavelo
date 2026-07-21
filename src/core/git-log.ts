@@ -424,11 +424,18 @@ async function enumerateLandings(
   return out;
 }
 
+/**
+ * `landing.branch`/`landing.subject` come straight off the merge commit's own
+ * `%s` (enumerateLandings), never through runLog — escape them here too, or
+ * a forged `--- landed` line planted in a merge subject (git's %s stops only
+ * at `\n`, so a raw `\r` survives inside it and reads as a line boundary to
+ * both this file's own escape regex and to the LLM) renders unescaped.
+ */
 function landingHeader(landing: Landing): string {
   if (landing.parents.length >= 2) {
     return landing.branch
-      ? `--- landed ${landing.date} branch: ${landing.branch}`
-      : `--- landed ${landing.date} merge: ${landing.subject}`;
+      ? `--- landed ${landing.date} branch: ${escapeMarkerLines(landing.branch)}`
+      : `--- landed ${landing.date} merge: ${escapeMarkerLines(landing.subject)}`;
   }
   return `--- landed ${landing.date} direct`;
 }
@@ -449,18 +456,22 @@ function logArgs(repoPath: string, since: string | null, until: string | null): 
 }
 
 /**
- * `--- ` at the start of a line is reserved for this file's own section
- * headers (`--- landed ...`, `--- not yet on ...`), always prepended outside
- * this function — git's own output can never legitimately start a line with
- * it. A commit belongs to whichever repository a [!git] callout names, so
- * its subject/body is rendered verbatim and out of this codebase's control;
- * prompt.ts tells the LLM a landed section wins over a not-yet-landed one for
- * the same work, so an unescaped `--- landed` line planted in a commit body
- * could make unshipped work read as shipped. Escaping here, the one choke
- * point every commit-rendering call passes through, closes it everywhere.
+ * `--- ` (optionally indented) at the start of a line is reserved for this
+ * file's own section headers (`--- landed ...`, `--- not yet on ...`) —
+ * indentation is tolerated on the *input* side because an LLM reads a
+ * slightly-indented line as the same sentinel even though this file itself
+ * never emits one indented. A commit belongs to whichever repository a
+ * [!git] callout names, so its subject/body is attacker-controlled and out
+ * of this codebase's control; prompt.ts tells the LLM a landed section wins
+ * over a not-yet-landed one for the same work, so an unescaped `--- landed`
+ * line planted in a commit's subject or body could make unshipped work read
+ * as shipped. Every caller that interpolates commit-sourced text next to
+ * this file's own header syntax must run it through here first — currently
+ * runLog's output (every commit-rendering path) and landingHeader's
+ * subject/branch interpolation (see below).
  */
 function escapeMarkerLines(text: string): string {
-  return text.replace(/^--- /gm, "\\--- ");
+  return text.replace(/^([ \t]*)--- /gm, "$1\\--- ");
 }
 
 /** Runs one rendering `git log`, mapping every failure onto the git.failed contract. */
