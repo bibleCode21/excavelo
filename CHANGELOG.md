@@ -7,6 +7,16 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [1.4.8] - 2026-07-21
+
+### Added
+
+- **Completeness verification.** After each transform, an optional pass (on by default — "Verify completeness" toggle in settings) audits the output against the raw memo, and against a transcript's figures, names, dates, and decisions when one is attached, then automatically reinserts anything missing before you see the preview. The preview modal shows the result: facts confirmed, N facts repaired, verification failed (your original output is kept unchanged), or skipped (`[!git]` notes, where memo items are selection criteria rather than content that must appear verbatim). Adds at most one or two extra Claude calls per transform, folded into the existing token/cost total.
+
+### Changed
+
+- Deduplicated an internal prompt-formatting helper shared between the transform and verify prompts. No functional change.
+
 ## [1.4.7] - 2026-07-20
 
 ### Changed
