@@ -15,11 +15,19 @@ import type { LlmResponse, PromptInput, TransformContext, VerificationResult } f
 
 type GenerateFn = (input: PromptInput) => Promise<LlmResponse>;
 
-/** Removes a single wrapping code fence (``` or ```lang) and trims. */
+/**
+ * Removes a single wrapping code fence (``` or ```lang) and trims. A fence
+ * line inside the candidate body means the outer pair is two separate code
+ * blocks, not a wrapper (a note that starts and ends with code) — stripping
+ * would flip every interior fence pair, so the text is kept as is. Cost of
+ * the conservative choice: output genuinely wrapped around inner code blocks
+ * keeps its wrapper (renders as one code block) instead of being corrupted.
+ */
 export function stripFences(text: string): string {
   const trimmed = text.trim();
   const match = /^```[^\n]*\n([\s\S]*?)\n?```$/.exec(trimmed);
-  return match ? match[1].trim() : trimmed;
+  if (!match || /^```/m.test(match[1])) return trimmed;
+  return match[1].trim();
 }
 
 /**
@@ -37,8 +45,18 @@ export function parseVerifyResponse(text: string): string[] | null {
   }
   const missing = (parsed as { missing?: unknown } | null)?.missing;
   if (!Array.isArray(missing) || !missing.every((m) => typeof m === "string")) return null;
-  return missing;
+  // Trust boundary on LLM output: blank entries are not facts; newlines are
+  // collapsed so an entry cannot forge a `=== SECTION ===` line inside the
+  // repair prompt; count/length caps bound the repair call's size.
+  return missing
+    .map((m) => m.replace(/\s*\n\s*/g, " ").trim())
+    .filter((m) => m.length > 0)
+    .slice(0, MAX_MISSING_ENTRIES)
+    .map((m) => m.slice(0, MAX_MISSING_ENTRY_LENGTH));
 }
+
+const MAX_MISSING_ENTRIES = 50;
+const MAX_MISSING_ENTRY_LENGTH = 500;
 
 /**
  * Audit prompt. The judgment set implements the contract's 누락 판정 대상:
@@ -47,9 +65,10 @@ export function parseVerifyResponse(text: string): string[] | null {
  * exclusion, no-guessing, and speaker-label distrust.
  */
 export function buildVerifyPrompt(ctx: TransformContext, outputText: string): PromptInput {
+  const hasContext = Boolean(ctx.perNoteContext && ctx.perNoteContext.trim());
   const sections: string[] = [label("RAW MEMO"), ctx.rawBody];
-  if (ctx.perNoteContext && ctx.perNoteContext.trim()) {
-    sections.push(label("NOTE-SPECIFIC CONTEXT"), ctx.perNoteContext.trim());
+  if (hasContext) {
+    sections.push(label("NOTE-SPECIFIC CONTEXT"), (ctx.perNoteContext as string).trim());
   }
   if (ctx.transcript && ctx.transcript.trim()) {
     sections.push(label("MEETING TRANSCRIPT (STT)"), ctx.transcript.trim());
@@ -60,6 +79,11 @@ export function buildVerifyPrompt(ctx: TransformContext, outputText: string): Pr
     "You are auditing the TRANSFORMED NOTE for completeness against its sources. List every fact that is missing from it.",
     "From the RAW MEMO, every distinct fact, statement, name, number, date, and decision must appear in the note.",
   ];
+  if (hasContext) {
+    rules.push(
+      "The NOTE-SPECIFIC CONTEXT is background for judging the note — never a source of missing facts."
+    );
+  }
   if (ctx.transcript && ctx.transcript.trim()) {
     rules.push(
       "From the MEETING TRANSCRIPT, only figures, names, dates, and decisions count as missing — never speaker attribution (STT speaker labels are unreliable), and never small talk, garbled passages, or transcript-only filler. When the memo and the transcript conflict, the memo wins. Do not guess about garbled passages."

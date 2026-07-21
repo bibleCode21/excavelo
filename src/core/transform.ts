@@ -10,8 +10,9 @@ import { t } from "../i18n";
 
 /**
  * Orchestrates a single transform: pull context + raw memo from the editor,
- * build the prompt, call the LLM, return the response. The caller is
- * responsible for showing the preview modal and committing the output.
+ * build the prompt, call the LLM, then run the verify→repair completeness
+ * chain (≤2 extra calls) when enabled. The caller is responsible for showing
+ * the preview modal and committing the output.
  */
 export class TransformRunner {
   constructor(private plugin: ExcaveloPlugin) {}
@@ -58,6 +59,8 @@ export class TransformRunner {
       // Verify→repair chain (docs/specs/completeness-verify-chain.md).
       // [!git] notes skip it: selection-criteria memo items would be
       // misjudged as misses and repaired into fabricated entries.
+      // runVerifyChain mutates `response` in place — usage fields sum across
+      // the chain's calls, and `text` is replaced on a valid repair.
       let verification: VerificationResult | null = null;
       if (this.plugin.settings.verifyCompleteness) {
         verification = gitLog
