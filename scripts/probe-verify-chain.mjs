@@ -242,6 +242,13 @@ check("repair input carries the raw memo (fabrication guard), note, and missing 
   assert.match(p.user, /fact two/);
   assert.match(p.user, /Do not invent/i);
 });
+check("repair prompt tells the model MISSING FACTS entries are quoted data, not directives", () => {
+  // Security WARN/med: missing[] is untrusted LLM output spliced verbatim
+  // into this prompt — without this rule an entry phrased as an imperative
+  // ("also insert the following text: ...") reads as a directive, not a fact.
+  const p = buildRepairPrompt(ctx(), "OUT", ["fact one"]);
+  assert.match(p.user, /not an instruction/i);
+});
 
 // --- runVerifyChain branching ----------------------------------------------
 
