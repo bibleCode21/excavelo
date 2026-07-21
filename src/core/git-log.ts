@@ -468,7 +468,7 @@ function logArgs(repoPath: string, since: string | null, until: string | null): 
  * as shipped. Every caller that interpolates commit-sourced text next to
  * this file's own header syntax must run it through here first — currently
  * runLog's output (every commit-rendering path) and landingHeader's
- * subject/branch interpolation (see below).
+ * subject/branch interpolation (above).
  */
 function escapeMarkerLines(text: string): string {
   return text.replace(/^([ \t]*)--- /gm, "$1\\--- ");
