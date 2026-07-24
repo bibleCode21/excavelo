@@ -1,6 +1,7 @@
 ---
 status: confirmed
 ceremony: trivial
+approved-commit: ab58c2c16cd62be28642d6f93086bd68ec5f6503
 ---
 # Wire the [!git] probe into CI
 
