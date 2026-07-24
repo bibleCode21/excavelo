@@ -448,6 +448,18 @@ function buildLongSubjectFixture() {
     ["merge", "--no-ff", "-m", `Merge branch '${"a".repeat(HUGE_NAME_LENGTH)}'`, "feature/huge"],
     at("2024-07-10T12:00:00Z")
   );
+
+  // Fixture-overhead trim (deferred-followups item 2): resolveBaseRef tries
+  // origin/HEAD, then origin/main, then origin/master, then main in turn — a
+  // bare local-only repo like every other fixture here fails the first three
+  // and costs 4 git spawns before loadGitLog's timed work even starts.
+  // Pre-seeding an origin/main tracking ref lets it resolve on the very first
+  // spawn, which is overhead this timing-sensitive fixture can't afford: it
+  // is unrelated to what A14 measures (the glob matcher's own performance).
+  const mainTip = git(["rev-parse", "main"]).trim();
+  git(["update-ref", "refs/remotes/origin/main", mainTip]);
+  git(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+
   return repo;
 }
 

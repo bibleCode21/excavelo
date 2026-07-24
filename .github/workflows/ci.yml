@@ -30,6 +30,9 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Probe git-log
+        run: node scripts/probe-git-log.mjs
+
       - name: Build
         run: pnpm build
 
