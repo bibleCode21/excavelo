@@ -31,14 +31,20 @@ import { t } from "../i18n";
  * selection, so no date window is applied unless the spec sets one.
  * `branches:<glob>` selects the same way (default window: last 7 days). Name
  * filtering only ever applies to landings that *have* a name — a squash,
- * rebase, or direct landing has none and is always emitted, or it would be
- * dropped for lacking what it cannot have. A selected branch whose work has
- * not landed gets a `--- not yet on <base>` section instead, never counted as
- * shipped. A repository with no selection contributes every landing in the
- * window (default: last 7 days) and no not-yet-landed sections.
+ * rebase, or direct landing has none and is always emitted, though under a
+ * selection it is bounded by the window so a pasted name cannot dump the whole
+ * history.
  *
- * See docs/specs/git-log-master-source.md — in particular why reachability is
- * not a landed-predicate, and what degrades in a squash/rebase repository.
+ * A selected branch is then *confirmed* against the base by three paths, in
+ * order: a landing whose message names it (which needs no ref, so a branch
+ * deleted after its squash still counts), every base-unique commit subject
+ * resolving to exactly one landing, or plain ancestry. A branch none of them
+ * confirms is reported nowhere at all — this file states what reached the
+ * base, and a guess about the rest is worse than silence.
+ *
+ * See docs/specs/git-log-master-source.md for the landing traversal, and
+ * docs/specs/git-log-landed-confirmation.md for the predicate above — in
+ * particular why tree-content comparison is not one of its paths.
  */
 
 export interface GitSpec {
@@ -363,7 +369,27 @@ interface Landing {
   /** Committer date — the date --since/--until filter on, so always in window. */
   date: string;
   subject: string;
+  /**
+   * Subject and body together — what the landed predicate searches. Read here
+   * rather than through one `git log --grep` per candidate name (the form the
+   * work contract states) because the walk is already happening: git's
+   * `-F -i --grep` matches a substring of exactly this text, so searching it in
+   * memory gives the same verdict without spawning git once per branch.
+   */
+  message: string;
   branch: string | null;
+}
+
+/**
+ * A landing that undoes or redoes another one is never evidence that work
+ * landed: a revert's subject quotes the original verbatim, so leaving it in
+ * would let a reverted commit confirm itself, and a reapply's quoting would
+ * push a genuinely re-landed subject past the exactly-one bound the predicate
+ * requires. Measured: one subject in the reference repository matches 5
+ * landings raw and exactly 1 after this filter.
+ */
+function isRevertOrReapply(landing: Landing): boolean {
+  return /^(Revert|Reapply) "/.test(landing.subject);
 }
 
 /**
@@ -411,24 +437,29 @@ async function enumerateLandings(
     ...(until ? [`--until=${until}`] : []),
     "--date=short",
     "--no-color",
-    "--pretty=format:%H\t%P\t%cd\t%s",
+    // NUL separates records and \x01 separates fields: the body is multi-line
+    // and a subject may itself contain a tab, so neither newlines nor tabs can
+    // delimit this. Both bytes are impossible inside a commit message.
+    "--pretty=format:%x00%H%x01%P%x01%cd%x01%s%x01%b",
   ]);
   if (result.code !== 0) {
     throw new Error(result.stderr.trim().split("\n")[0] ?? "git log --first-parent failed");
   }
   const out: Landing[] = [];
-  for (const line of result.stdout.split(/\r?\n/)) {
-    if (!line.trim()) continue;
-    const [hash, parents, date, ...rest] = line.split("\t");
+  for (const record of result.stdout.split("\0")) {
+    if (!record.trim()) continue;
+    const [hash, parents, date, subject, ...rest] = record.split("\x01");
     if (!hash) continue;
     const parentList = parents ? parents.split(" ").filter(Boolean) : [];
-    const subject = rest.join("\t");
+    const subjectText = subject ?? "";
+    const body = rest.join("\x01");
     out.push({
       hash,
       parents: parentList,
       date: date ?? "",
-      subject,
-      branch: parentList.length >= 2 ? parseMergeBranchName(subject) : null,
+      subject: subjectText,
+      message: body ? `${subjectText}\n${body}` : subjectText,
+      branch: parentList.length >= 2 ? parseMergeBranchName(subjectText) : null,
     });
   }
   return out;
@@ -442,10 +473,15 @@ async function enumerateLandings(
  * both this file's own escape regex and to the LLM) renders unescaped.
  */
 function landingHeader(landing: Landing): string {
+  // A name is a name whatever put it there: parsed off a merge subject, or
+  // assigned by the landed predicate because the landing's message named the
+  // branch. The second case is single-parent by definition — a squash — which
+  // is exactly the landing that used to have no way to carry a name.
+  if (landing.branch) {
+    return `--- landed ${landing.date} branch: ${escapeMarkerLines(landing.branch)}`;
+  }
   if (landing.parents.length >= 2) {
-    return landing.branch
-      ? `--- landed ${landing.date} branch: ${escapeMarkerLines(landing.branch)}`
-      : `--- landed ${landing.date} merge: ${escapeMarkerLines(landing.subject)}`;
+    return `--- landed ${landing.date} merge: ${escapeMarkerLines(landing.subject)}`;
   }
   return `--- landed ${landing.date} direct`;
 }
@@ -467,7 +503,7 @@ function logArgs(repoPath: string, since: string | null, until: string | null): 
 
 /**
  * `--- ` (optionally indented) at the start of a line is reserved for this
- * file's own section headers (`--- landed ...`, `--- not yet on ...`) —
+ * file's own section headers (`--- landed ...`, `--- confirmed landed on ...`) —
  * indentation is tolerated on the *input* side because an LLM reads a
  * slightly-indented line as the same sentinel even though this file itself
  * never emits one indented. A commit belongs to whichever repository a
@@ -529,45 +565,142 @@ async function loadLandingSections(
 }
 
 /**
- * One `--- not yet on <base>` section per selected branch whose work has not
- * landed. This is the old `--not <base>` query — the branch's own commits,
- * not shared history — narrowed by --cherry-pick, which also drops commits
- * whose patch landed under a different hash (rebase, cherry-pick).
- *
- * It cannot see through a squash: N commits' patches never equal one squashed
- * patch, so a squash-landed branch still looks unlanded here. `landedNames`
- * catches that only when the squash subject named the branch, which GitHub and
- * GitLab do not do by default. The residual is real and closed at the prompt
- * layer (a landed section wins) — see the work contract.
+ * A landing that names this branch, or null. The bound is exactly one match:
+ * `branchCandidates` accepts any slash-bearing token, so a memo mentioning a
+ * file path puts that path through here, and file paths recur across many
+ * commit messages. Uniqueness rejects them. It is uniqueness as a *substring*,
+ * not as a ref — `feature/n1` also matches a message naming `feature/n10`, so a
+ * name that is a prefix of a sibling's is not confirmable this way and falls
+ * through to the other paths. Less signal, never a wrong name.
  */
-async function loadNotLandedSections(
+function landingsNaming(landings: Landing[], names: string[]): Map<string, Landing | null> {
+  const needles = names.map((n) => [n, n.toLowerCase()] as const);
+  // Every name is matched in one pass so each message is lower-cased once, not
+  // once per candidate: a merge subject is unbounded third-party text (A14
+  // exercises 100k characters of it), and re-folding that per name is what
+  // turns a linear scan into a measurable cost.
+  const found = new Map<string, Landing | null>();
+  for (const landing of landings) {
+    if (isRevertOrReapply(landing)) continue;
+    const haystack = landing.message.toLowerCase();
+    for (const [name, needle] of needles) {
+      if (!haystack.includes(needle)) continue;
+      found.set(name, found.has(name) ? null : landing); // second match = ambiguous
+    }
+  }
+  return found;
+}
+
+/** A commit subject resolves when exactly one landing's message carries it. */
+function resolvesUniquely(subject: string, landings: Landing[]): boolean {
+  if (!subject) return false;
+  let hits = 0;
+  for (const landing of landings) {
+    if (isRevertOrReapply(landing)) continue;
+    if (!landing.message.includes(subject)) continue;
+    if (++hits > 1) return false;
+  }
+  return hits === 1;
+}
+
+/** Subjects of the commits on `ref` that the base does not have. */
+async function branchSubjects(
+  repoPath: string,
+  spec: GitSpec,
+  base: string,
+  ref: string,
+  cherryPick: boolean
+): Promise<string[]> {
+  const result = await runGit([
+    "-C",
+    repoPath,
+    "log",
+    `${base}...${ref}`,
+    "--right-only",
+    ...(cherryPick ? ["--cherry-pick"] : []),
+    "--no-color",
+    "--pretty=format:%s",
+  ]);
+  if (result.code !== 0) {
+    const detail = result.stderr.trim().split("\n")[0] ?? "";
+    throw new Error(t("git.failed", { path: spec.path, error: detail }));
+  }
+  return result.stdout.split(/\r?\n/).filter((s) => s.trim());
+}
+
+/**
+ * Whether `ref` is already part of the base's history. Unlike every other git
+ * call in this file, a non-zero exit is an *answer* here, not a failure:
+ * `--is-ancestor` reports "no" with exit 1. Only an unexpected code (128, a bad
+ * ref) keeps the git.failed contract.
+ */
+async function isAncestor(
+  repoPath: string,
+  spec: GitSpec,
+  ref: string,
+  base: string
+): Promise<boolean> {
+  const result = await runGit(["-C", repoPath, "merge-base", "--is-ancestor", ref, base]);
+  if (result.code === 0) return true;
+  if (result.code === 1) return false;
+  const detail = result.stderr.trim().split("\n")[0] ?? "";
+  throw new Error(t("git.failed", { path: spec.path, error: detail }));
+}
+
+/**
+ * One `--- confirmed landed on <base>` section per selected branch this proves
+ * landed without a landing naming it — path 2 (every base-unique commit's
+ * subject resolves against the landing history) and path 3 (the branch is an
+ * ancestor of the base, which no subject comparison can see because a
+ * fast-forwarded branch has no base-unique commits at all).
+ *
+ * The label deliberately stays outside the `--- landed ` prefix: that prefix
+ * selects landed sections, and a fourth label aliasing it would silently
+ * re-scope every count over them.
+ *
+ * A branch neither path confirms contributes nothing — not even a marker. That
+ * is the point: this file reports what reached the base, and a guess about the
+ * rest is worse than silence.
+ */
+async function loadConfirmedSections(
   repoPath: string,
   spec: GitSpec,
   base: string,
   branches: BranchRef[],
-  since: string | null,
-  landedNames: Set<string>
+  landings: Landing[],
+  namedAlready: Set<string>
 ): Promise<string[]> {
   const sections: string[] = [];
-  // Both exclusions belong in the filter: applied inside the loop instead, the
-  // base would eat a slot under the cap and silently drop a real branch.
+  // The base itself is excluded predicate-wide, not just from path 2: it is
+  // trivially its own ancestor, so path 3 would confirm it. Excluding it here
+  // also keeps it from eating a slot under the cap.
   const considered = branches.filter(
-    (b) => b.ref !== base && !landedNames.has(b.display.toLowerCase())
+    (b) => b.ref !== base && !namedAlready.has(b.display.toLowerCase())
   );
-  for (const branch of considered.slice(0, MAX_BRANCHES)) {
-    const args = [
-      ...logArgs(repoPath, since, spec.until),
-      `${base}...${branch.ref}`,
-      "--right-only",
-      "--cherry-pick",
-    ];
-    const body = await runLog(args, spec);
-    if (!body) continue;
-    sections.push(`--- not yet on ${base} branch: ${branch.display}\n${body}`);
+  let confirmed = 0;
+  for (const branch of considered) {
+    if (confirmed >= MAX_BRANCHES) break;
+    // Windowless on purpose: a window here would let an old unresolved commit
+    // fall outside it and read as resolved.
+    const unique = await branchSubjects(repoPath, spec, base, branch.ref, false);
+    let body: string | null = null;
+    if (unique.length > 0) {
+      const unresolved = await branchSubjects(repoPath, spec, base, branch.ref, true);
+      if (unresolved.every((s) => resolvesUniquely(s, landings))) {
+        body = unique.map((s) => escapeMarkerLines(s)).join("\n");
+      }
+    } else if (await isAncestor(repoPath, spec, branch.ref, base)) {
+      // Its commits *are* base commits and no range recovers which were its
+      // work, so the header alone is the honest maximum.
+      body = "";
+    }
+    if (body === null) continue;
+    confirmed++;
+    sections.push(`--- confirmed landed on ${base} branch: ${branch.display}${body ? `\n${body}` : ""}`);
   }
-  if (considered.length > MAX_BRANCHES) {
+  if (confirmed >= MAX_BRANCHES && considered.length > MAX_BRANCHES) {
     sections.push(
-      `(only the ${MAX_BRANCHES} most recently updated of ${considered.length} unlanded branches were scanned)`
+      `(only the first ${MAX_BRANCHES} of ${considered.length} selected branches were confirmed)`
     );
   }
   return sections;
@@ -621,95 +754,141 @@ export async function loadGitLog(specs: string[], memoText = ""): Promise<string
       continue;
     }
 
-    // Pasted branches are an explicit selection, so no default date window;
-    // every other mode keeps the 7-day default. Which of those applies is only
-    // known once this repository's landings have been read, so read at the
-    // widest window the spec allows and narrow below if nothing selects here.
-    // Reading narrow first would miss a landing older than the default window
-    // whose branch has since been deleted, and fall through when it should not.
-    const hasPastedCandidates = !spec.branches && candidates.length > 0;
-    let since = hasPastedCandidates ? spec.since : spec.since ?? DEFAULT_SINCE;
-
-    const readLandings = async (from: string | null): Promise<Landing[]> => {
+    const readLandings = async (from: string | null, to: string | null): Promise<Landing[]> => {
       try {
-        return await enumerateLandings(repoPath, base, from, spec.until);
+        return await enumerateLandings(repoPath, base, from, to);
       } catch (e) {
         throw new Error(t("git.failed", { path: spec.path, error: (e as Error).message }));
       }
     };
-    let landings = await readLandings(since);
-
-    let branches: BranchRef[] = [];
-    if (spec.branches || candidates.length > 0) {
-      try {
-        branches = await enumerateBranches(repoPath);
-      } catch (e) {
-        throw new Error(t("git.failed", { path: spec.path, error: (e as Error).message }));
-      }
-    }
 
     // `hit` decides which *named* landings survive; a nameless landing has no
     // name to match and is never filtered by one.
     let hit: ((name: string | null) => boolean) | null = null;
     let selectedBranches: BranchRef[] = [];
+    let judged: Landing[] = [];
     let note = "";
 
-    if (spec.branches) {
-      const glob = spec.branches;
-      const test = (name: string) => globMatch(name, glob);
-      const match = (name: string | null) => name !== null && test(name);
-      selectedBranches = selectBranches(branches, test);
-      if (selectedBranches.length === 0 && !landings.some((l) => match(l.branch))) {
-        throw new Error(t("git.no-branches", { glob: spec.branches, path: spec.path }));
+    if (spec.branches || candidates.length > 0) {
+      // The predicate never sees a window: one applied here would let an old
+      // unlanded commit fall outside it and read as landed. The spec's window
+      // governs rendering, below.
+      judged = await readLandings(null, null);
+      let branches: BranchRef[];
+      try {
+        branches = await enumerateBranches(repoPath);
+      } catch (e) {
+        throw new Error(t("git.failed", { path: spec.path, error: (e as Error).message }));
       }
-      hit = match;
-      note = `, branches ${spec.branches}`;
-    } else if (candidates.length > 0) {
-      const wanted = new Set(candidates.map((c) => c.toLowerCase()));
-      const test = (name: string) => wanted.has(name.toLowerCase());
-      const match = (name: string | null) => name !== null && test(name);
-      selectedBranches = selectBranches(branches, test);
-      if (selectedBranches.length > 0 || landings.some((l) => match(l.branch))) {
-        hit = match;
+
+      // Both modes reduce to the same thing — a set of candidate names — so the
+      // predicate below cannot tell how a branch was selected, which is right:
+      // how it was picked has no bearing on whether it landed.
+      let test: (name: string) => boolean;
+      let names: string[];
+      if (spec.branches) {
+        const glob = spec.branches;
+        test = (name: string) => globMatch(name, glob);
+        selectedBranches = selectBranches(branches, test);
+        names = selectedBranches.map((b) => b.display);
+        note = `, branches ${spec.branches}`;
+      } else {
+        const wanted = new Set(candidates.map((c) => c.toLowerCase()));
+        test = (name: string) => wanted.has(name.toLowerCase());
+        selectedBranches = selectBranches(branches, test);
+        names = candidates;
         note = ", branches named in the memo";
       }
-      // Nothing pasted exists in this repository — fall through to no
-      // selection. The window has to come back with it: `candidates` are
-      // shared across every spec, so a name that matched elsewhere must not
-      // strand this repository on an unbounded walk.
+      // A name path 1 assigned is selected by construction, but it is stored in
+      // the ref's display form, which `test` may not recognise — pasting only
+      // `origin/feature/x` puts that spelling in the candidate set while the
+      // landing is labelled `feature/x`. Without this the landing would be
+      // named and then filtered straight back out.
+      const assigned = new Set<string>();
+      const match = (name: string | null) =>
+        name !== null && (test(name) || assigned.has(name.toLowerCase()));
+
+      // The rendered name is the ref's display form whenever a ref exists, so
+      // pasting `origin/feature/x` and `feature/x` label the landing
+      // identically; only a name with no ref left to resolve against — the
+      // deleted-after-squash case — renders as pasted.
+      const displayOf = (name: string) =>
+        selectedBranches.find(
+          (b) =>
+            b.display.toLowerCase() === name.toLowerCase() ||
+            b.ref.toLowerCase() === name.toLowerCase()
+        )?.display ?? name;
+
+      // Path 1 — a landing whose message names the branch. This is what sees
+      // through a squash: the landing keeps no ref and no parent to trace, but
+      // a message that names its source is proof enough, and it works for a
+      // branch whose ref was deleted after merging. A landing already carrying
+      // a name keeps it, so two spellings of one branch cannot label it twice.
+      const namedBy = landingsNaming(judged, names);
+      for (const name of names) {
+        const landing = namedBy.get(name);
+        if (landing && landing.branch === null) {
+          landing.branch = displayOf(name);
+          assigned.add(landing.branch.toLowerCase());
+        }
+      }
+
+      if (spec.branches && selectedBranches.length === 0 && !judged.some((l) => match(l.branch))) {
+        throw new Error(t("git.no-branches", { glob: spec.branches, path: spec.path }));
+      }
+      // Whether this repository is in a selection mode still turns on whether
+      // anything matched here — not on whether the predicate confirmed it —
+      // so a memo whose only slash-tokens are file paths still falls through.
+      if (selectedBranches.length > 0 || judged.some((l) => match(l.branch))) hit = match;
     }
 
-    const hasSelection = hit !== null;
-    if (!hasSelection && since === null) {
-      since = DEFAULT_SINCE;
-      landings = await readLandings(since);
-    }
+    const sections: string[] = [];
+    let since: string | null;
 
-    // Name filtering runs here, before loadLandingSections applies the cap:
-    // selecting out of an already-capped set would let the cap evict the very
-    // landing the user asked for. Matched named landings are placed ahead of
-    // nameless ones for the same reason — nameless landings always pass this
-    // filter (no name to reject them by), so a repository that also takes
-    // frequent direct-to-base commits could otherwise fill every cap slot with
-    // nameless landings and evict the one landing that was actually selected.
-    const selected = hit
-      ? [
-          ...landings.filter((l) => l.branch !== null && hit(l.branch)),
-          ...landings.filter((l) => l.branch === null),
-        ]
-      : landings;
-
-    const sections = await loadLandingSections(repoPath, spec, selected);
-    if (hasSelection) {
-      const landedNames = new Set(
-        landings.flatMap((l) => (l.branch ? [l.branch.toLowerCase()] : []))
+    if (hit) {
+      // Named landings take the spec's window and no default (an explicit
+      // selection is not silently bounded to a week); nameless ones take the
+      // default too, or a pasted selection would dump the base's entire
+      // first-parent history — measured at 55k characters against one repo.
+      since = spec.since;
+      const inSpecWindow =
+        spec.since || spec.until
+          ? new Set((await readLandings(spec.since, spec.until)).map((l) => l.hash))
+          : null;
+      const namelessAllowed = new Set(
+        (await readLandings(spec.since ?? DEFAULT_SINCE, spec.until)).map((l) => l.hash)
       );
+      // Name filtering runs before loadLandingSections applies the cap:
+      // selecting out of an already-capped set would let the cap evict the very
+      // landing the user asked for. Matched named landings are placed ahead of
+      // nameless ones for the same reason — nameless landings always pass this
+      // filter (no name to reject them by), so a repository that also takes
+      // frequent direct-to-base commits could otherwise fill every cap slot
+      // with nameless landings and evict the one landing that was selected.
+      const selected = [
+        ...judged.filter(
+          (l) => l.branch !== null && hit(l.branch) && (!inSpecWindow || inSpecWindow.has(l.hash))
+        ),
+        ...judged.filter((l) => l.branch === null && namelessAllowed.has(l.hash)),
+      ];
+      sections.push(...(await loadLandingSections(repoPath, spec, selected)));
+      const named = new Set(judged.flatMap((l) => (l.branch ? [l.branch.toLowerCase()] : [])));
       sections.push(
-        ...(await loadNotLandedSections(repoPath, spec, base, selectedBranches, since, landedNames))
+        ...(await loadConfirmedSections(repoPath, spec, base, selectedBranches, judged, named))
       );
+    } else {
+      since = spec.since ?? DEFAULT_SINCE;
+      sections.push(
+        ...(await loadLandingSections(repoPath, spec, await readLandings(since, spec.until)))
+      );
+      note = "";
     }
 
-    const header = `repository: ${spec.path} (${windowLabel(since, spec.until)}${note})`;
+    // The header reports the window the *spec* set, so an explicit selection
+    // still reads "all history"; the nameless bound is named as its own clause
+    // rather than replacing it, since the two apply to different landings.
+    const namelessNote = hit && spec.since === null ? `, recent landings ${DEFAULT_SINCE}` : "";
+    const header = `repository: ${spec.path} (${windowLabel(since, spec.until)}${namelessNote}${note})`;
     parts.push(`${header}\n${sections.join("\n\n") || "(no commits in this window)"}`);
   }
   return parts.join("\n\n");

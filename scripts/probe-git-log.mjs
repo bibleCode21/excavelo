@@ -238,11 +238,21 @@ function buildRemoteTrackingFixture() {
 
   const tree = git(["rev-parse", "main^{tree}"]).trim();
   const base = git(["rev-parse", "main"]).trim();
+  // The subject deliberately does not contain the branch name: path 1 must not
+  // fire, or the branch would be confirmed as a *named landing* and these
+  // checks would assert the old label instead of the new one.
   const tip = git(
-    ["commit-tree", tree, "-p", base, "-m", "work on feature/remote-only"],
+    ["commit-tree", tree, "-p", base, "-m", "work on the remote-only feature"],
     at("2024-01-02T12:00:00Z")
   ).trim();
   git(["update-ref", "refs/remotes/origin/feature/remote-only", tip]);
+
+  // Land the same work on main under a different hash — a squash, in other
+  // words. Without a landing to resolve against, no path confirms the branch,
+  // and every check below would assert a header that never appears.
+  fs.writeFileSync(path.join(repo, "README"), "base\nremote-only feature\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", "work on the remote-only feature"], at("2024-01-03T12:00:00Z"));
 
   return repo;
 }
@@ -303,8 +313,22 @@ function buildManyUnlandedBranchesFixture(count) {
 
   for (let i = 1; i <= count; i++) {
     const env = at(new Date(Date.UTC(2024, 0, 1, 12) + i * 86_400_000).toISOString());
-    const tip = git(["commit-tree", tree, "-p", base, "-m", `work on feature/u${i}`], env).trim();
+    // The subject names no branch, so path 1 cannot fire and every branch is
+    // confirmed the same way — by path 2, against the landings planted below.
+    // `unit 1 work` is not a substring of `unit 10 work`, so no two branches
+    // collide on the exactly-one bound.
+    const tip = git(["commit-tree", tree, "-p", base, "-m", `unit ${i} work`], env).trim();
     git(["branch", `feature/u${i}`, tip]);
+  }
+
+  // Land each branch's work on main under a different hash — squashes. Without
+  // these the branches are unconfirmable, nothing is emitted, and the cap has
+  // nothing to evict, which is what this fixture exists to observe.
+  for (let i = 1; i <= count; i++) {
+    const env = at(new Date(Date.UTC(2024, 6, 1, 12) + i * 3_600_000).toISOString());
+    fs.writeFileSync(path.join(repo, `u${i}.txt`), `${i}\n`);
+    git(["add", "-A"]);
+    git(["commit", "-q", "-m", `unit ${i} work`], env);
   }
 
   // main's tip lands after every branch's commit, so main out-ranks all of
@@ -314,6 +338,215 @@ function buildManyUnlandedBranchesFixture(count) {
   git(["add", "-A"]);
   git(["commit", "-q", "-m", "later main work"], mainEnv);
 
+  return repo;
+}
+
+/**
+ * git-log-landed-confirmation's fixture. Every landing here is single-parent —
+ * a squash/rebase repository, the shape the landed predicate exists for, where
+ * no landing carries a branch name of its own. It plants one instance of each
+ * evidence shape the three paths must separate:
+ *
+ *   feature/named     landed, ref DELETED, the landing's body names it   → path 1
+ *   feature/globnamed landed, ref KEPT, the landing's body names it      → path 1 only
+ *   feature/resolved  landed, ref kept, subject survives the squash      → path 2
+ *   feature/ancestor  landed by fast-forward, no base-unique commits     → path 3
+ *   feature/rewritten landed, but the squash rewrote its subjects        → hidden
+ *   feature/generic   unlanded, and its subject recurs across landings   → hidden
+ *   feature/reverted  landed, reverted, reapplied                        → path 2
+ *   feature/ghost     named only inside a `Revert "..."` subject         → hidden
+ *
+ * feature/globnamed is deliberately confirmable by path 2 as well — its landing
+ * kept the branch subject verbatim — so "tried 1 → 2 → 3 and stop at the first
+ * success" has an observable: a broken exclusivity emits two sections for it,
+ * one per path. It is also the only ref-bearing path-1 branch here, which is
+ * what lets `branches:<glob>` reach path 1 at all (a glob selects refs, and the
+ * one name with no ref, feature/named, is unreachable that way).
+ */
+function buildConfirmationFixture() {
+  const repo = path.join(tmp, "confirmation");
+  fs.mkdirSync(repo);
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  const git = makeGit(repo);
+  const commit = (file, message, env) => {
+    fs.writeFileSync(path.join(repo, file), `${file}\n`);
+    git(["add", "-A"]);
+    git(["commit", "-q", "-m", message], env);
+  };
+  const day = (n) => at(`2024-08-${String(n).padStart(2, "0")}T12:00:00Z`);
+
+  commit("README", "base", day(1));
+  const base = git(["rev-parse", "main"]).trim();
+  const tree = git(["rev-parse", "main^{tree}"]).trim();
+
+  // Branch refs, all forked from the root. Their commits never reach main by
+  // hash — only their patches or their names do, which is the whole point.
+  const branchTip = (name, subject, n) => {
+    const tip = git(["commit-tree", tree, "-p", base, "-m", subject], day(n)).trim();
+    git(["branch", name, tip]);
+    return tip;
+  };
+  branchTip("feature/resolved", "add the resolved thing", 2);
+  branchTip("feature/rewritten", "add the first half", 3);
+  branchTip("feature/generic", "bug fixed", 4);
+  branchTip("feature/reverted", "add the reverted thing", 5);
+  // Same subject as its landing below, so path 2 would confirm it too — which
+  // is the point: only path 1 running first keeps it to one section.
+  branchTip("feature/globnamed", "Add the glob-named feature (#13)", 6);
+
+  // Landings on main. Single-parent throughout.
+  commit("named.txt", "Add the named feature (#7)\n\nSquash-merge-from: feature/named", day(10));
+  commit("resolved.txt", "add the resolved thing", day(11));
+  // The squash rewrote two branch subjects into one combined subject, so no
+  // branch subject survives verbatim — feature/rewritten stays unconfirmable.
+  // Not a superstring of the branch subject — a squash that *rewrote* it. If
+  // the landing merely appended, the branch subject would still be a substring
+  // and path 2 would resolve it, which is not the shape this pins.
+  commit("rewritten.txt", "add both halves of the thing", day(12));
+  // Both mention the same file path, which `branchCandidates` accepts as a
+  // candidate name — the shape path 1's exactly-one bound exists to reject.
+  commit("generic1.txt", "bug fixed\n\ntouches src/core/thing.ts", day(13));
+  commit("generic2.txt", "bug fixed\n\ntouches src/core/thing.ts again", day(14));
+  const reverted = (() => {
+    commit("reverted.txt", "add the reverted thing", day(15));
+    const h = git(["rev-parse", "main"]).trim();
+    git(["revert", "--no-edit", h], day(16));
+    const r = git(["rev-parse", "main"]).trim();
+    git(["revert", "--no-edit", r], day(17));
+    // git names the second revert `Reapply "..."` on modern git; normalize so
+    // the fixture pins the label this predicate excludes, not git's version.
+    git(["commit", "-q", "--amend", "-m", `Reapply "add the reverted thing"`], day(17));
+    return h;
+  })();
+  void reverted;
+
+  // A ref-bearing branch its landing's body names: path 1 confirms it before
+  // path 2 ever runs, and a glob can reach it because a ref exists.
+  commit(
+    "globnamed.txt",
+    "Add the glob-named feature (#13)\n\nSquash-merge-from: feature/globnamed",
+    day(18)
+  );
+  // B3's second half. The only landing carrying this name is a revert, and the
+  // exclusion takes it out of the candidate set — so the name confirms nothing.
+  // Without the exclusion this is a single unambiguous match and path 1 would
+  // hand feature/ghost a landed section, which is exactly the false positive
+  // the revert rule exists to stop.
+  commit("ghost.txt", `Revert "add the ghost thing for feature/ghost"`, day(19));
+
+  // Fast-forwarded branch: main is moved onto it, so it is an ancestor with no
+  // base-unique commits — invisible to both text paths.
+  git(["branch", "feature/ancestor", "main"]);
+
+  return repo;
+}
+
+/** Literal tabs, spelled out so no reformatting can quietly turn them to spaces. */
+const TABBED_MERGE_SUBJECT = "combine\tthe two streams";
+const TABBED_SQUASH_SUBJECT = "add\tthe tabbed thing (#12)";
+
+/**
+ * `enumerateLandings` now reads `%b` alongside `%s` — the landed predicate
+ * searches subject *and* body — and that forced its record format off
+ * newline/tab delimiters onto `%x00` records with `%x01` fields. Nothing in the
+ * fixtures above can tell the new parser from a regression back to the old
+ * shape: every subject there is tab-free and every body is a single line.
+ *
+ * Two shapes that do:
+ *   - a squash landing whose body runs several blank-line-separated paragraphs
+ *     before naming its branch. A newline-delimited record stops at the first
+ *     blank line, so the name is unreachable and path 1 silently declines.
+ *   - a merge landing whose subject carries a literal tab and matches none of
+ *     parseMergeBranchName's formats, so the raw subject reaches the
+ *     `merge: <subject>` header. Tab-delimited fields truncate it at the tab.
+ */
+function buildMessageParsingFixture() {
+  const repo = path.join(tmp, "parsing");
+  fs.mkdirSync(repo);
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  const git = makeGit(repo);
+  fs.writeFileSync(path.join(repo, "README"), "base\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", "base"], at("2024-09-01T12:00:00Z"));
+
+  const tree = git(["rev-parse", "main^{tree}"]).trim();
+  const side = git(["commit-tree", tree, "-p", "main", "-m", "side work"], at("2024-09-02T12:00:00Z")).trim();
+  const merge = git(
+    ["commit-tree", tree, "-p", "main", "-p", side, "-m", TABBED_MERGE_SUBJECT],
+    at("2024-09-02T12:00:00Z")
+  ).trim();
+  git(["update-ref", "refs/heads/main", merge]);
+  git(["reset", "-q", "--hard", "main"]);
+
+  fs.writeFileSync(path.join(repo, "multiline.txt"), "x\n");
+  git(["add", "-A"]);
+  git(
+    [
+      "commit",
+      "-q",
+      "-m",
+      [TABBED_SQUASH_SUBJECT, "", "first paragraph", "", "second paragraph", "", "Squash-merge-from: feature/multiline"].join("\n"),
+    ],
+    at("2024-09-03T12:00:00Z")
+  );
+  return repo;
+}
+
+/**
+ * B16's second half. `merge-base --is-ancestor` answers with exit 1 and errors
+ * with 128, and the predicate must keep treating 128 as the git.failed the
+ * error contract has always raised. A ref pointing at a tree is the reachable
+ * shape: `update-ref` refuses to write a non-commit, so the ref file is written
+ * directly, and `for-each-ref` then hands the predicate a name every git
+ * revision walk rejects with 128.
+ *
+ * No selection is needed to read this repository — only the predicate ever
+ * touches a branch ref — so the check below also pins that the failure comes
+ * from the predicate and not from the landing walk.
+ */
+function buildBrokenRefFixture() {
+  const repo = path.join(tmp, "brokenRef");
+  fs.mkdirSync(repo);
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  const git = makeGit(repo);
+  fs.writeFileSync(path.join(repo, "README"), "base\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", "base"], at("2024-01-01T12:00:00Z"));
+  const tree = git(["rev-parse", "main^{tree}"]).trim();
+  fs.mkdirSync(path.join(repo, ".git/refs/heads/feature"), { recursive: true });
+  fs.writeFileSync(path.join(repo, ".git/refs/heads/feature/broken"), `${tree}\n`);
+  return repo;
+}
+
+/**
+ * B11's shape: one landing, and both spellings of the branch that produced it
+ * pasted in the same memo — the case "one landing carries at most one name"
+ * exists for. The landing's body names the branch in its ref form, so both
+ * `feature/dual` and `origin/feature/dual` match it and either could claim it.
+ * The ref is remote-tracking-only, so display and ref genuinely differ.
+ */
+function buildDualNameFixture() {
+  const repo = path.join(tmp, "dual");
+  fs.mkdirSync(repo);
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  const git = makeGit(repo);
+  fs.writeFileSync(path.join(repo, "README"), "base\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", "base"], at("2024-01-01T12:00:00Z"));
+  const tree = git(["rev-parse", "main^{tree}"]).trim();
+  const base = git(["rev-parse", "main"]).trim();
+  const tip = git(
+    ["commit-tree", tree, "-p", base, "-m", "work on the dual feature"],
+    at("2024-01-02T12:00:00Z")
+  ).trim();
+  git(["update-ref", "refs/remotes/origin/feature/dual", tip]);
+
+  fs.writeFileSync(path.join(repo, "dual.txt"), "x\n");
+  git(["add", "-A"]);
+  git(
+    ["commit", "-q", "-m", "Add the dual feature (#11)\n\nSquash-merge-from: origin/feature/dual"],
+    at("2024-01-03T12:00:00Z")
+  );
   return repo;
 }
 
@@ -472,7 +705,11 @@ function sections(out) {
   const found = [];
   let cur = null;
   for (const line of out.split("\n")) {
-    if (line.startsWith("--- landed ") || line.startsWith("--- not yet on ")) {
+    if (
+      line.startsWith("--- landed ") ||
+      line.startsWith("--- confirmed landed on ") ||
+      line.startsWith("--- not yet on ")
+    ) {
       cur = { header: line, body: [] };
       found.push(cur);
     } else if (cur) {
@@ -482,6 +719,12 @@ function sections(out) {
   return found.map((s) => ({ header: s.header, body: s.body.join("\n") }));
 }
 
+/**
+ * Deliberately still filters on `--- landed ` alone. `--- confirmed landed on`
+ * is parsed as its own section above but is not one of these: every count over
+ * landed sections (A11's most of all) would otherwise change meaning silently.
+ * B15 asserts both halves of exactly this split.
+ */
 const landedSections = (out) => sections(out).filter((s) => s.header.startsWith("--- landed "));
 const section = (out, header) => sections(out).find((s) => s.header === header);
 /** Subject lines are rendered alone on a line; anchor so `n1` never hits `n10`. */
@@ -630,13 +873,15 @@ for (const [name, glob, expected] of globCases) {
  * either call site — both would keep every other check green. A
  * remote-tracking-only branch (display "feature/remote-only", ref
  * "origin/feature/remote-only") is the one shape that splits the two fields;
- * whether it is selected shows up as a "not yet on main branch: ..." section,
- * since selectedBranches feeds loadNotLandedSections directly.
+ * whether it is selected shows up as a "confirmed landed on main branch: ..."
+ * section, since selectedBranches feeds loadConfirmedSections directly. The
+ * header is the *display* form whichever field matched — that is the rendered
+ * name rule, and it is what makes one constant serve all four checks.
  */
 console.log("selectBranches: display vs ref divergence (remote-tracking branch)");
 
 const remoteRepo = buildRemoteTrackingFixture();
-const UNLANDED_HEADER = "--- not yet on main branch: feature/remote-only";
+const CONFIRMED_HEADER = "--- confirmed landed on main branch: feature/remote-only";
 // Mirrors `matches` above: a selection that drops to zero throws
 // git.no-branches in glob mode, which must fail the check, not crash the probe.
 const tryLoad = async (specs, memo) => {
@@ -657,28 +902,28 @@ const remotePastedDisplayOnly = await tryLoad([`${remoteRepo} since:2024-01-01`]
 
 check("glob mode: a glob matching only the ref (origin/feature/*) still selects", () => {
   assert.ok(
-    remoteGlobRefOnly.includes(UNLANDED_HEADER),
+    remoteGlobRefOnly.includes(CONFIRMED_HEADER),
     `selectBranches's "|| test(b.ref)" side is not being exercised; got: ${remoteGlobRefOnly}`
   );
 });
 
 check("glob mode: a glob matching only the display name (no origin/ prefix) still selects", () => {
   assert.ok(
-    remoteGlobDisplayOnly.includes(UNLANDED_HEADER),
+    remoteGlobDisplayOnly.includes(CONFIRMED_HEADER),
     `selectBranches's "test(b.display)" side is not being exercised; got: ${remoteGlobDisplayOnly}`
   );
 });
 
 check("pasted-candidates mode: a pasted ref-form name (origin/feature/remote-only) still selects", () => {
   assert.ok(
-    remotePastedRefOnly.includes(UNLANDED_HEADER),
+    remotePastedRefOnly.includes(CONFIRMED_HEADER),
     `selectBranches's "|| test(b.ref)" side is not being exercised; got: ${remotePastedRefOnly}`
   );
 });
 
 check("pasted-candidates mode: a pasted display-form name (feature/remote-only) still selects", () => {
   assert.ok(
-    remotePastedDisplayOnly.includes(UNLANDED_HEADER),
+    remotePastedDisplayOnly.includes(CONFIRMED_HEADER),
     `selectBranches's "test(b.display)" side is not being exercised; got: ${remotePastedDisplayOnly}`
   );
 });
@@ -725,16 +970,24 @@ check("A2 — never-merged branch is absent entirely with no selection", () => {
   );
 });
 
-check("A2 — pasted, it appears only under not-yet-landed", () => {
-  const s = section(pastedNever, "--- not yet on main branch: feature/never");
-  assert.ok(s, "expected a not-yet-landed section for feature/never");
-  assert.ok(hasSubject(s.body, "never: work in progress"), "the branch's commit is missing");
-  for (const l of landedSections(pastedNever)) {
+/**
+ * A2's second half is narrowed by git-log-landed-confirmation: an unlanded
+ * branch no longer gets a `--- not yet on` section, it gets nothing at all
+ * (user decision A — only confirmed landings are reported). What must still
+ * hold, and is the part A2 exists for, is that its work is never reported as
+ * shipped. B6/J4 own the absence of the old section.
+ */
+check("A2 — pasted, an unlanded branch's work is still never reported as shipped", () => {
+  for (const l of sections(pastedNever)) {
     assert.ok(
       !hasSubject(l.body, "never: work in progress"),
-      `unlanded work reported as shipped under "${l.header}"`
+      `unlanded work reported as landed under "${l.header}"`
     );
   }
+  assert.ok(
+    !pastedNever.includes("feature/never"),
+    "an unconfirmed branch was named in the output"
+  );
 });
 
 check("A3 — squash landing is `direct`, no selection", () => {
@@ -815,14 +1068,53 @@ check("A8 — a rebased-and-fast-forwarded branch lands as `direct` commits", ()
   assert.ok(hasSubject(both, "rebased: two"), "rebased: two missing");
 });
 
-check("A8 — and is reported exactly once, with no not-yet-landed section", () => {
-  assert.equal(
-    sections(pastedRebased).filter((s) => s.header.includes("feature/rebased")).length,
-    0,
-    "a landed branch was also reported as unlanded"
-  );
+/**
+ * A8's "exactly once" half, unchanged: the branch's commits render once and
+ * nowhere else. Its "no section names this branch" half is narrowed by
+ * git-log-landed-confirmation — path 3 now names it — which B14 covers.
+ */
+check("A8 — and its commits are reported exactly once", () => {
   assert.equal(countOf(pastedRebased, "rebased: one"), 1);
   assert.equal(countOf(pastedRebased, "rebased: two"), 1);
+  assert.ok(!pastedRebased.includes("--- not yet on "), "a not-yet-landed section was emitted");
+});
+
+/**
+ * A8's narrowed half, stated as a count by the preservation table: the old
+ * probe asserted that *no* section named feature/rebased, and path 3 turns that
+ * 0 into exactly 1. Asserted on this fixture and not only on B14's own, because
+ * this is the shape the narrowing was measured against — a branch rebased onto
+ * the base and fast-forwarded, with the base then moving on past it.
+ *
+ * Exactly one is the load-bearing number on both sides: 0 means path 3 stopped
+ * reaching the fast-forward shape it exists for, and 2 means the header-only
+ * section is double-counting commits that already render as `direct` landings.
+ */
+check("A8/B14 — the fast-forwarded branch gets exactly one section, header-only", () => {
+  const named = sections(pastedRebased).filter((s) => s.header.includes("feature/rebased"));
+  assert.equal(
+    named.length,
+    1,
+    `expected exactly one section naming feature/rebased; got ${named.map((s) => s.header).join(" | ") || "none"}`
+  );
+  assert.equal(named[0].header, "--- confirmed landed on main branch: feature/rebased");
+  assert.equal(named[0].body.trim(), "", `a header-only section carried a body: ${named[0].body}`);
+});
+
+/**
+ * The predicate's paths are exclusive, and a merge-parsed name is already a
+ * name: `namedAlready` must keep feature/merged out of the confirmed pass, or
+ * the same branch reports twice — once with its commits, once as a bare
+ * confirmation. Nothing else pins this; A1 only asserts the landed section is
+ * present, which stays true when a spurious second section joins it.
+ */
+check("a branch named by its own merge landing gets no second, confirmed section", () => {
+  const named = sections(pastedMerged).filter((s) => s.header.includes("feature/merged"));
+  assert.deepEqual(
+    named.map((s) => s.header),
+    [MERGED_HEADER],
+    "a merge-named branch was confirmed a second time by the predicate"
+  );
 });
 
 /**
@@ -850,13 +1142,20 @@ check("I1 — every commit under a landed section is reachable from the base", (
   }
 });
 
-check("I2 — every commit under a not-yet-landed section is not reachable from the base", () => {
-  const unlanded = sections(pastedNever)
-    .filter((s) => s.header.startsWith("--- not yet on "))
-    .flatMap((s) => hashesIn(s.body));
-  assert.ok(unlanded.length > 0, "no unlanded commits rendered — nothing to check");
-  for (const h of unlanded) {
-    assert.ok(!isAncestorOfBase(h), `${h} is rendered as unlanded but already reached main`);
+/**
+ * J4 replaces I2. I2 governed the contents of not-yet-landed sections; with
+ * that section kind gone from every selection mode, the invariant that carries
+ * its weight is that the kind is absent — otherwise I2 would hold vacuously
+ * and stop discriminating anything.
+ */
+check("J4 — no selection mode emits a not-yet-landed section", () => {
+  for (const [label, out] of [
+    ["pasted (unlanded branch)", pastedNever],
+    ["pasted (squashed branch)", pastedSquashed],
+    ["pasted (merged branch)", pastedMerged],
+    ["pasted (rebased branch)", pastedRebased],
+  ]) {
+    assert.ok(!out.includes("--- not yet on "), `${label} emitted a not-yet-landed section`);
   }
 });
 
@@ -1018,15 +1317,29 @@ const ctxWith = (gitLog) => ({
   vaultRoot: "/vault",
 });
 
-const LANDED_WINS =
-  "A landed section is the shipped record and wins: when the same work appears in both a landed and a not-yet-landed section, report it as shipped and never also as in progress.";
+/**
+ * A9 narrows under git-log-landed-confirmation: the landed-wins rule had a
+ * counterpart to win against, and with not-yet-landed sections gone there is
+ * nothing left for it to arbitrate. What must still be emitted is the label
+ * vocabulary — now including the new label — and the rule that nothing in the
+ * log is ever pending. B9 owns the positive half for the templates.
+ */
+const NOTHING_PENDING =
+  "Work that has not reached the default branch is not in the GIT LOG at all. Never report anything from it as in progress, pending, or not yet shipped.";
+const NEW_LABEL_RULE = "--- confirmed landed on <base> branch: <name>";
 
 const withGit = buildPrompt(ctxWith("--- landed 2024-07-14 direct\n=== abc1234 2024-06-15 probe\nwork"));
 const withoutGit = buildPrompt(ctxWith(null));
 
-check("A9 — the landed-wins rule is emitted in === OUTPUT RULES ===", () => {
+check("A9 — the label vocabulary and the nothing-is-pending rule are emitted", () => {
   const rules = withGit.user.slice(withGit.user.indexOf("=== OUTPUT RULES ==="));
-  assert.ok(rules.includes(LANDED_WINS), "the landed-wins rule is missing or reworded");
+  assert.ok(rules.includes(NEW_LABEL_RULE), "the new label is missing from the vocabulary rule");
+  assert.ok(rules.includes("'--- landed <date>'"), "the landed label is missing from the vocabulary");
+  assert.ok(rules.includes(NOTHING_PENDING), "the nothing-is-pending rule is missing or reworded");
+  assert.ok(
+    !rules.includes("--- not yet on"),
+    "a rule still instructs the model about not-yet-landed sections"
+  );
 });
 
 check("A9/I4 — exactly one === GIT LOG === block", () => {
@@ -1035,7 +1348,8 @@ check("A9/I4 — exactly one === GIT LOG === block", () => {
 
 check("A9 — no gitLog: no GIT LOG block and no git rules", () => {
   assert.equal(countOf(withoutGit.user, "=== GIT LOG ==="), 0);
-  assert.ok(!withoutGit.user.includes(LANDED_WINS));
+  assert.ok(!withoutGit.user.includes(NOTHING_PENDING));
+  assert.ok(!withoutGit.user.includes(NEW_LABEL_RULE));
 });
 
 console.log("filter before cap (A11)");
@@ -1082,16 +1396,16 @@ console.log("not-yet-landed cap excludes the base ref before slicing (Round 2 fi
 const manyUnlanded = buildManyUnlandedBranchesFixture(MAX_BRANCHES + 1);
 const unlandedOut = await loadGitLog([`${manyUnlanded} since:2024-01-01 branches:*`]);
 
-check("base ref never gets its own not-yet-landed section", () => {
+check("base ref never gets its own confirmed section", () => {
   assert.ok(
-    !unlandedOut.includes("--- not yet on main branch: main"),
-    "the base ref was reported as its own unlanded branch"
+    !unlandedOut.includes("--- confirmed landed on main branch: main"),
+    "the base ref confirmed itself — it is trivially its own ancestor (path 3)"
   );
 });
 
-check("the over-cap notice counts real unlanded branches, not the base ref", () => {
+check("the over-cap notice counts real branches, not the base ref", () => {
   assert.ok(
-    unlandedOut.includes(`of ${MAX_BRANCHES + 1} unlanded branches were scanned`),
+    unlandedOut.includes(`of ${MAX_BRANCHES + 1} selected branches were confirmed`),
     `expected the notice to count ${MAX_BRANCHES + 1} real branches; got: ${unlandedOut.slice(unlandedOut.indexOf("(only"))}`
   );
 });
@@ -1101,7 +1415,7 @@ check("base ref does not waste a cap slot ahead of a real branch", () => {
   // feature/u1) when base is excluded first. If base instead occupies a
   // slot, feature/u2 is evicted too — that second eviction is the bug.
   assert.ok(
-    hasSubject(unlandedOut, "work on feature/u2"),
+    hasSubject(unlandedOut, "unit 2 work"),
     "feature/u2 was evicted — the base ref must be excluded before the cap slice, not after"
   );
 });
@@ -1182,6 +1496,63 @@ check("A13 — the name matches only a landing: source branch deleted after merg
     "a deleted branch's landing was invisible — the match was tested against a narrow window"
   );
   assert.ok(hasSubject(pastedDeleted, "deleted: work"), "the landing's commits are missing");
+});
+
+/**
+ * B7 — the window split, which is the whole of what a selection now does to
+ * nameless landings and had no assertion of its own: A13 pins that a *named*
+ * landing takes no default, and A3/A4/A6 pin nameless landings under an
+ * explicit window, but nothing observed the one case the split was built for —
+ * a selection with no spec window, where named and nameless are bounded
+ * differently in the same output.
+ *
+ * This fixture already straddles the live boundary: `feature/old`'s landing is
+ * named and dated 2024 (outside the default forever), the root commit is
+ * nameless and equally old, and `recent work` is nameless and two days back.
+ * Nothing here asserts an absolute date.
+ */
+check("B7 — a selection bounds nameless landings by the default, named ones not at all", () => {
+  assert.ok(
+    hasSubject(pastedOld, "old: work"),
+    "a named landing outside the default window was dropped — named landings take no default"
+  );
+  assert.ok(
+    hasSubject(pastedOld, "recent work"),
+    "a nameless landing inside the default window was dropped — the bound is not a blanket drop"
+  );
+  assert.ok(
+    !hasSubject(pastedOld, "base"),
+    "a nameless landing outside the default window was emitted — the pasted-mode history dump is back"
+  );
+});
+
+check("B7 — and the header names that bound as its own clause, beside the spec's", () => {
+  const header = pastedOld.split("\n")[0];
+  assert.ok(header.includes("(all history"), `the spec's window stopped being reported: ${header}`);
+  assert.ok(
+    header.includes("recent landings 7 days ago"),
+    `the nameless bound is in force but unreported: ${header}`
+  );
+});
+
+/**
+ * The other half of B7: a spec window *replaces* that default rather than
+ * intersecting with it, so the same nameless landing the default hid renders
+ * once the spec reaches back far enough. Without this, a bound hardcoded to
+ * DEFAULT_SINCE for nameless landings would pass every check above.
+ */
+const pastedOldWide = await loadGitLog([`${win} since:2024-01-01`], "finished feature/old");
+
+check("B7 — a spec window replaces the nameless default, it does not intersect it", () => {
+  assert.ok(
+    hasSubject(pastedOldWide, "base"),
+    "a nameless landing inside the spec window but outside the default was still dropped"
+  );
+  assert.ok(hasSubject(pastedOldWide, "old: work"), "the named landing is missing");
+  assert.ok(
+    !pastedOldWide.split("\n")[0].includes("recent landings"),
+    `the default bound was reported while a spec window was in force: ${pastedOldWide.split("\n")[0]}`
+  );
 });
 
 /** The window a repository ends up with comes from its own selection outcome. */
@@ -1329,20 +1700,458 @@ check("A15 — work-log keys date blocks to the landing header's date", () => {
   );
 });
 
-check("A15 — work-log states a not-yet-landed section is never its content", () => {
-  assert.ok(
-    workLog.includes("Never write a not-yet-landed section into the work log"),
-    "the not-yet-landed exclusion is missing or reworded"
-  );
+/**
+ * A15 narrows with A9: neither template can route a section kind that is no
+ * longer emitted. B9 replaces both halves — the negative (no not-yet-landed
+ * wiring survives anywhere) and the positive (both templates name the new
+ * label, or a confirmed section would fall through every selector they have).
+ */
+check("B9 — no not-yet-landed wiring survives in either template", () => {
+  for (const [name, body] of [
+    ["work-log.md", workLog],
+    ["work-report.md", workReport],
+  ]) {
+    assert.ok(!body.includes("--- not yet on"), `${name} still routes not-yet-landed sections`);
+    assert.ok(
+      !body.includes("not-yet-landed"),
+      `${name} still instructs the model about not-yet-landed sections`
+    );
+  }
 });
 
-check("A15 — work-report feeds not-yet-landed sections to In progress / carried over", () => {
+check("B9 — both templates name the new label", () => {
+  for (const [name, body] of [
+    ["work-log.md", workLog],
+    ["work-report.md", workReport],
+  ]) {
+    assert.ok(
+      body.includes("--- confirmed landed on <base> branch: <name>"),
+      `${name} does not name the confirmed-landed label — such a section would fall through`
+    );
+  }
+});
+
+check("B9 — In progress / carried over is memo-sourced only", () => {
   const heading = "## In progress / carried over";
   const idx = workReport.indexOf(heading);
   assert.ok(idx >= 0, "the In progress / carried over section is gone");
+  const body = workReport.slice(idx);
   assert.ok(
-    workReport.slice(idx).includes("Work that has not landed: the GIT LOG's `--- not yet on <base>` sections"),
-    "not-yet-landed sections no longer feed In progress / carried over"
+    body.includes("Only what the memo itself describes as unfinished"),
+    "the section still claims a GIT LOG source"
+  );
+});
+
+/**
+ * B1-B16 — the landed predicate. Every landing in this fixture is
+ * single-parent, so nothing here is confirmable by the merge-subject path that
+ * A1 covers: these criteria exercise the three paths git-log-landed-confirmation
+ * adds, and the silence it requires everywhere else.
+ */
+console.log("landed confirmation (B1-B16)");
+
+const confRepo = buildConfirmationFixture();
+const conf = (memo, extra = "") => tryLoad([`${confRepo}${extra}`], memo);
+
+const confNamed = await conf("shipped feature/named");
+const confResolved = await conf("shipped feature/resolved");
+const confRewritten = await conf("shipped feature/rewritten");
+const confGeneric = await conf("shipped feature/generic");
+const confReverted = await conf("shipped feature/reverted");
+const confAncestor = await conf("shipped feature/ancestor");
+const confFilePath = await conf("see src/core/thing.ts");
+const confGlob = await conf("", " branches:feature/resolved");
+const confBaseRef = await conf("", " branches:*");
+const confGhost = await conf("shipped feature/ghost");
+const confGlobAncestor = await conf("", " branches:feature/ancestor");
+const confGlobNamed = await conf("", " branches:feature/globnamed");
+const confGlobNothing = await conf("", " branches:feature/nothing-matches-this*");
+// Every landing here predates 2025, so this window renders none of them while
+// leaving the windowless predicate underneath untouched.
+const confBaseRefNarrow = await conf("", " branches:* since:2025-01-01");
+
+const confirmedHeaders = (out) =>
+  sections(out)
+    .filter((s) => s.header.startsWith("--- confirmed landed on "))
+    .map((s) => s.header)
+    .sort();
+
+check("B1 — a landing naming the branch confirms it, with no ref for it at all", () => {
+  const s = section(confNamed, "--- landed 2024-08-10 branch: feature/named");
+  assert.ok(s, `expected the landing to be named; got: ${confNamed}`);
+  assert.ok(
+    hasSubject(s.body, "Add the named feature (#7)"),
+    "the landing's own commit is missing from its section"
+  );
+});
+
+check("B2 — a candidate matching two or more landings confirms nothing", () => {
+  assert.ok(
+    !confFilePath.includes("--- confirmed landed on "),
+    "a file-path token confirmed a branch"
+  );
+  assert.ok(
+    !confFilePath.includes("branch: src/core/thing.ts"),
+    "a file-path token was rendered as a branch name"
+  );
+});
+
+check("B3 — revert/reapply landings are not match candidates", () => {
+  assert.ok(
+    confReverted.includes("--- confirmed landed on main branch: feature/reverted"),
+    `re-landed work must stay confirmable; got: ${confReverted}`
+  );
+});
+
+/**
+ * B3's other half, which the check above cannot reach: exclusion has to cost
+ * something as well as save something. feature/ghost is named by exactly one
+ * landing and that landing is a revert, so without the exclusion this is an
+ * unambiguous path-1 match and the branch is reported as shipped — the reverse
+ * of what a revert means. The excluded landing is the *only* mention, so a
+ * regression shows up as a section, not as a changed count.
+ */
+check("B3 — a name carried only by a revert's subject confirms nothing", () => {
+  assert.ok(
+    !confGhost.includes("feature/ghost"),
+    `a revert's subject confirmed the branch it names; got: ${confGhost}`
+  );
+  assert.ok(
+    !confGhost.includes("--- landed ") && !confGhost.includes("--- confirmed landed on "),
+    `expected silence for a branch only a revert names; got: ${confGhost}`
+  );
+});
+
+check("B4 — path 2 renders base-unique subjects, no bodies or diffstats", () => {
+  const s = section(confResolved, "--- confirmed landed on main branch: feature/resolved");
+  assert.ok(s, `expected a confirmed section; got: ${confResolved}`);
+  assert.ok(hasSubject(s.body, "add the resolved thing"), "the base-unique subject is missing");
+  assert.ok(!/^=== \w+ /m.test(s.body), "a commit line leaked into a subjects-only section");
+  assert.ok(!s.body.includes("|"), "a diffstat leaked into a subjects-only section");
+});
+
+check("B5 — a subject recurring across landings cannot confirm", () => {
+  assert.ok(
+    !confGeneric.includes("feature/generic"),
+    `a branch was confirmed by a subject that occurs twice; got: ${confGeneric}`
+  );
+});
+
+check("B5 — a squash that rewrote the subject leaves the branch unconfirmed", () => {
+  assert.ok(
+    !confRewritten.includes("feature/rewritten"),
+    `expected silence for an unconfirmable branch; got: ${confRewritten}`
+  );
+});
+
+check("B6/J4 — no selection mode emits a not-yet-landed section", () => {
+  for (const out of [confNamed, confResolved, confRewritten, confGeneric, confAncestor, confGlob]) {
+    assert.ok(!out.includes("--- not yet on "), "a not-yet-landed section was emitted");
+  }
+});
+
+/**
+ * B8 — "narrowing since: does not change which branches are confirmed, only
+ * which landings render". Both clauses have to be asserted together or the
+ * criterion passes for the wrong reason: an unchanged confirmed set proves
+ * nothing unless the narrowing demonstrably reached the rendering, and a
+ * changed rendering proves nothing unless the confirmed set is watched.
+ *
+ * Compared as whole sets rather than one branch at a time — the failure this
+ * guards against is a window leaking into the predicate, which would drop the
+ * branches whose evidence sits outside the window, and only a set comparison
+ * notices a branch that quietly stopped being confirmed.
+ */
+check("B8 — narrowing the window leaves the confirmed set identical", () => {
+  const wide = confirmedHeaders(confBaseRef);
+  assert.ok(wide.length > 0, "no branch is confirmed at all — the comparison would hold vacuously");
+  assert.deepEqual(
+    confirmedHeaders(confBaseRefNarrow),
+    wide,
+    "a narrower since: changed which branches are confirmed — the window reached the predicate"
+  );
+});
+
+check("B8 — while the same narrowing does change which landings render", () => {
+  assert.ok(
+    landedSections(confBaseRef).length > 0,
+    "no landing renders unwindowed — the narrowing below would prove nothing"
+  );
+  assert.equal(
+    landedSections(confBaseRefNarrow).length,
+    0,
+    "a window past every landing still rendered one — the window never reached the rendering"
+  );
+});
+
+check("B10 — glob mode confirms through path 2", () => {
+  assert.ok(
+    confGlob.includes("--- confirmed landed on main branch: feature/resolved"),
+    `a glob-selected branch was not confirmed; got: ${confGlob}`
+  );
+});
+
+/**
+ * B10's remaining two paths. A glob supplies names the same way a memo does —
+ * §Spec's "the predicate cannot tell how a branch was selected" — but the names
+ * it supplies are the matched refs' `display` forms, and only these reach path 1
+ * and path 3 through a glob. Path 1 in particular needs a ref to exist before a
+ * glob can name it at all, which is why the fixture carries feature/globnamed
+ * alongside the ref-less feature/named that B1 uses.
+ */
+check("B10 — glob mode confirms through path 3", () => {
+  assert.ok(
+    confGlobAncestor.includes("--- confirmed landed on main branch: feature/ancestor"),
+    `a glob-selected ancestor was not confirmed; got: ${confGlobAncestor}`
+  );
+});
+
+check("B10 — glob mode confirms through path 1, under the ref's display name", () => {
+  const named = sections(confGlobNamed).filter((s) => s.header.includes("feature/globnamed"));
+  assert.deepEqual(
+    named.map((s) => s.header),
+    ["--- landed 2024-08-18 branch: feature/globnamed"],
+    `expected exactly one path-1 landed section; got: ${confGlobNamed}`
+  );
+  assert.ok(
+    hasSubject(named[0].body, "Add the glob-named feature (#13)"),
+    "the landing's own commit is missing from its section"
+  );
+});
+
+/**
+ * The exclusivity rule, whose only observable is this branch: its landing kept
+ * the branch subject verbatim, so path 2 would confirm it just as readily. Two
+ * sections here means the paths stopped stopping at the first success, and the
+ * same commits report twice under two labels.
+ */
+check("B10 — and path 2 does not also confirm what path 1 already named", () => {
+  assert.equal(
+    confirmedHeaders(confGlobNamed).length,
+    0,
+    `a path-1 branch was confirmed a second time by path 2; got: ${confGlobNamed}`
+  );
+});
+
+check("B10 — a glob matching neither a ref nor a landing name still raises git.no-branches", () => {
+  assert.equal(
+    confGlobNothing,
+    `<threw: ${t("git.no-branches", { glob: "feature/nothing-matches-this*", path: confRepo })}>`
+  );
+});
+
+check("B12 — the base ref is never confirmed, by any path", () => {
+  assert.ok(
+    !confBaseRef.includes("branch: main"),
+    "the base ref confirmed itself (it is trivially its own ancestor)"
+  );
+});
+
+check("B13 — a name that is a prefix of another landing's name is not confirmed by path 1", () => {
+  // manyOut pastes feature/n1, whose name is a substring of the messages
+  // naming feature/n10..n19 — eleven matches, so path 1 must decline.
+  assert.equal(
+    sections(manyOut).filter((s) => s.header === "--- confirmed landed on main branch: feature/n1")
+      .length,
+    0,
+    "an ambiguous prefix name was confirmed by path 1"
+  );
+});
+
+check("B14 — an ancestor branch is confirmed with a header and nothing else", () => {
+  const s = section(confAncestor, "--- confirmed landed on main branch: feature/ancestor");
+  assert.ok(s, `expected a header-only confirmation; got: ${confAncestor}`);
+  assert.equal(s.body.trim(), "", `a header-only section carried a body: ${s.body}`);
+});
+
+check("B15 — the new label is parsed as a section but is not a landed section", () => {
+  const parsed = sections(confResolved).map((s) => s.header);
+  assert.ok(
+    parsed.includes("--- confirmed landed on main branch: feature/resolved"),
+    "the new label was swallowed into the preceding section's body"
+  );
+  assert.ok(
+    landedSections(confResolved).every((s) => !s.header.startsWith("--- confirmed")),
+    "the new label was counted as a `--- landed ` section — every count over them shifts"
+  );
+});
+
+check("B16 — a branch that is not an ancestor produces no error", () => {
+  assert.ok(
+    !confGeneric.startsWith("<threw:"),
+    `merge-base --is-ancestor exit 1 was treated as a failure: ${confGeneric}`
+  );
+});
+
+/**
+ * B16's other half. Exit 1 being an answer is a deliberate hole in this file's
+ * "non-zero is fatal" contract, and a hole is only safe if its edges hold: the
+ * exit codes that are *not* 1 must still fail loudly rather than read as a
+ * quiet "not an ancestor" and hide a repository the user asked about.
+ *
+ * Reachability, recorded rather than glossed: the 128 a bad ref produces is
+ * raised by the predicate's first git call (`git log <base>...<ref>`), not by
+ * `isAncestor` — that runs only for a branch whose base-unique query already
+ * succeeded, and a ref good enough for `git log` is good enough for
+ * `merge-base`. `isAncestor`'s own 128 arm is therefore unreachable from
+ * loadGitLog and no fixture here can exercise it; what B16 states and what this
+ * pins is the observable contract — a bad ref anywhere in the predicate still
+ * raises git.failed rather than being swallowed as a negative.
+ */
+const brokenRefRepo = buildBrokenRefFixture();
+const brokenRefListed = makeGit(brokenRefRepo)([
+  "for-each-ref",
+  "--format=%(refname:short)",
+  "refs/heads",
+]);
+const brokenRefOut = await tryLoad([`${brokenRefRepo} since:2024-01-01 branches:feature/*`], "");
+const brokenRefNoSelection = await tryLoad([`${brokenRefRepo} since:2024-01-01`], "");
+
+check("B16 — the fixture's premise: the broken ref is visible to the branch scan", () => {
+  assert.ok(
+    brokenRefListed.split("\n").includes("feature/broken"),
+    `for-each-ref does not see the planted ref, so nothing below reaches the predicate (ref backend: ${brokenRefListed.trim().split("\n").join(",")})`
+  );
+});
+
+check("B16 — a bad ref (exit 128) still raises git.failed", () => {
+  assert.ok(
+    brokenRefOut.startsWith(`<threw: ${t("git.failed", { path: brokenRefRepo, error: "" })}`),
+    `expected the git.failed contract; got: ${brokenRefOut}`
+  );
+});
+
+check("B16 — and it is the predicate that raises it, not the landing walk", () => {
+  assert.ok(
+    !brokenRefNoSelection.startsWith("<threw:"),
+    `the same repository failed with no selection at all: ${brokenRefNoSelection}`
+  );
+});
+
+/**
+ * J1 — no branch name reaches the output on the strength of having been
+ * selected. Stated as the complete section set rather than a per-branch spot
+ * check: the invariant is about what is *absent*, and only pinning the whole
+ * set catches a name that appears somewhere nobody thought to look.
+ *
+ * Every name the fixture defines is pasted at once, which is also the only
+ * place the path-1 loop runs against a candidate list long enough for one
+ * candidate's match to disturb another's.
+ */
+const CONF_ALL_NAMES = [
+  "feature/named",
+  "feature/globnamed",
+  "feature/resolved",
+  "feature/reverted",
+  "feature/ancestor",
+  "feature/rewritten",
+  "feature/generic",
+  "feature/ghost",
+  "feature/typo-naming-nothing",
+];
+const confAllPasted = await conf(`shipped ${CONF_ALL_NAMES.join(" ")}`);
+
+check("J1 — only names a path confirmed reach the output, and each exactly once", () => {
+  assert.deepEqual(
+    sections(confAllPasted)
+      .map((s) => s.header)
+      .sort(),
+    [
+      "--- confirmed landed on main branch: feature/ancestor",
+      "--- confirmed landed on main branch: feature/resolved",
+      "--- confirmed landed on main branch: feature/reverted",
+      "--- landed 2024-08-10 branch: feature/named",
+      "--- landed 2024-08-18 branch: feature/globnamed",
+    ],
+    `the emitted sections are not exactly the confirmed ones; got:\n${confAllPasted}`
+  );
+});
+
+check("J1 — an unconfirmed selected name appears nowhere in the output at all", () => {
+  for (const name of ["feature/rewritten", "feature/generic", "feature/ghost", "feature/typo-naming-nothing"]) {
+    assert.ok(
+      !confAllPasted.includes(name),
+      `${name} was named in the output without any path confirming it`
+    );
+  }
+});
+
+/**
+ * B11 — one landing, and both spellings of its branch pasted at once. Both
+ * candidates match this landing's message, and what the criterion asks is that
+ * it still yields one section and renders its commits once.
+ *
+ * Measured while writing this, and recorded because the contract reads the
+ * other way: dropping the "one landing carries at most one name" rule changes
+ * neither count — a landing is one object and renders once however many
+ * candidates label it — it changes only *which* candidate's spelling reaches
+ * the header. That name is the half deliberately left unasserted here: pasting
+ * the ref form first yields `origin/feature/dual` where §Spec's rendered-name
+ * rule calls for the ref's `display`. The divergence is escalated to the user,
+ * not pinned in either direction.
+ */
+const dualRepo = buildDualNameFixture();
+const dualDisplayFirst = await tryLoad(
+  [`${dualRepo} since:2024-01-01`],
+  "picked up feature/dual and origin/feature/dual"
+);
+const dualRefFirst = await tryLoad(
+  [`${dualRepo} since:2024-01-01`],
+  "picked up origin/feature/dual and feature/dual"
+);
+
+check("B11 — both spellings pasted yield exactly one section for the landing", () => {
+  for (const [label, out] of [
+    ["display form first", dualDisplayFirst],
+    ["ref form first", dualRefFirst],
+  ]) {
+    const named = sections(out).filter((s) => s.header.includes("feature/dual"));
+    assert.equal(
+      named.length,
+      1,
+      `${label}: expected one section; got ${named.map((s) => s.header).join(" | ") || "none"}`
+    );
+    assert.equal(
+      countOf(out, "Add the dual feature (#11)"),
+      1,
+      `${label}: the landing's commit rendered more than once — I3 broken`
+    );
+  }
+});
+
+/**
+ * The record format `enumerateLandings` moved to when it started reading `%b`.
+ * Both shapes below are silent failures rather than crashes if it regresses: a
+ * newline-delimited record truncates the body at its first blank line, and a
+ * tab-delimited field truncates a subject at its first tab. Neither shows up
+ * as an error — the branch simply stops being confirmable, and the header
+ * simply says less than the commit did.
+ */
+console.log("landing record parsing (NUL records, \\x01 fields)");
+
+const parsingRepo = buildMessageParsingFixture();
+const parsingOut = await tryLoad([`${parsingRepo} since:2024-09-01`], "shipped feature/multiline");
+
+/**
+ * This landing's subject also carries a tab, so the same check covers the
+ * field side: only a delimiter no message can contain keeps `%b` at the field
+ * position the parser reads it from, and a subject that splits into two fields
+ * pushes the body out of reach whether or not a blank line is involved.
+ */
+check("a multi-paragraph body is read whole, so path 1 sees a name below a blank line", () => {
+  const s = section(parsingOut, "--- landed 2024-09-03 branch: feature/multiline");
+  assert.ok(s, `the branch name sits past two blank lines and was not found; got: ${parsingOut}`);
+  assert.ok(
+    hasSubject(s.body, "second paragraph"),
+    "the body was truncated before its later paragraphs"
+  );
+});
+
+check("a tab inside a subject survives into the merge header intact", () => {
+  const headers = sections(parsingOut).map((s) => s.header);
+  assert.ok(
+    headers.includes(`--- landed 2024-09-02 merge: ${TABBED_MERGE_SUBJECT}`),
+    `a tabbed subject was truncated at the tab; headers: ${headers.join(" | ")}`
   );
 });
 

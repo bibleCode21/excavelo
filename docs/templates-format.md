@@ -104,32 +104,43 @@ where work counts as done. Each entry on its first-parent history is one
 *landing* and gets a section:
 
 ```
---- landed <YYYY-MM-DD> branch: <name>   a merge, expanded to the commits it brought in
+--- landed <YYYY-MM-DD> branch: <name>   a landing whose branch is known, with its commits
 --- landed <YYYY-MM-DD> merge: <subject> a merge whose subject names no branch
 --- landed <YYYY-MM-DD> direct           a single commit: direct, squashed, or rebased
---- not yet on <base> branch: <name>     a selected branch whose work has not landed
+--- confirmed landed on <base> branch: <name>
+                                         a selected branch proven to have reached the
+                                         base, listed as commit subjects
 ```
 
 The date on a landing header is the day the work reached the default branch,
 not the day it was written, and `since:`/`until:` bound that same date. Merge,
 squash, and rebase workflows all work without configuration: a merge has two
-or more parents and expands; anything else *is* its own landing. Commits that
-live only on a branch that has not landed are reported under `not yet on` and
-are never counted as shipped.
+or more parents and expands; anything else *is* its own landing.
+
+**Nothing that has not reached the default branch appears in the log.** Work
+sitting on an unlanded branch is not reported at all — not as pending, not as
+unverified. The log is the shipped record and only that.
 
 Branch selection is automatic: when the memo body contains branch names —
 typically lines pasted straight from git, `branch-name  subject` — the
 landings carrying those names are the ones emitted. Only a merge landing
-carries a branch name, so name selection narrows the log in merge-commit
-repositories; in squash and rebase repositories no landing has a name to match
-and the whole window is emitted instead (the templates still filter it against
-the memo's work list). A nameless landing is never dropped for lacking a name.
-Pasted branches are an explicit selection: no date window applies unless the
-spec sets `since:`/`until:`. A repository where no pasted name matches keeps
-the plain no-selection behavior, 7-day window included. `branches:<glob>`
-(e.g. `branches:feature/2026/*`, `*` crosses `/`) selects the same way against
-a glob. Only local state is read — `git fetch` first if the branches live on a
-remote.
+carries a branch name of its own, so in squash and rebase repositories the
+selected branches are instead **confirmed** against the base by three checks,
+tried in order: a landing whose message names the branch (which needs no ref,
+so a branch deleted after merging still counts), every base-unique commit
+subject resolving to exactly one landing, or plain ancestry. A branch none of
+them confirms is reported nowhere — a guess about what shipped is worse than
+silence. A nameless landing is never dropped for lacking a name, but under a
+selection it is bounded by the window (7 days by default), so pasting a branch
+name no longer dumps the base's whole history alongside it.
+
+Named landings keep taking no default window: an explicit selection is not
+silently bounded to a week, and `since:`/`until:` still bound every kind when
+the spec sets them. A repository where no pasted name matches keeps the plain
+no-selection behavior, 7-day window included. `branches:<glob>` (e.g.
+`branches:feature/2026/*`, `*` crosses `/`) selects the same way against a
+glob and is confirmed by the same three checks. Only local state is read —
+`git fetch` first if the branches live on a remote.
 
 When the memo carries a work list — pasted branch lines, issue titles, or
 ticket ids — prompt rules make it a pure filter: an entry with no matching
