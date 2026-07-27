@@ -1,6 +1,7 @@
 ---
 status: confirmed
 ceremony: standard
+approved-commit: 5b738320dbdf8f6860eef9387c1846d6f7b3fd8b
 ---
 # `[!git]`: confirm which pasted branches actually landed
 
