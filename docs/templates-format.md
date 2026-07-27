@@ -109,7 +109,9 @@ where work counts as done. Each entry on its first-parent history is one
 --- landed <YYYY-MM-DD> direct           a single commit: direct, squashed, or rebased
 --- confirmed landed on <base> branch: <name>
                                          a selected branch proven to have reached the
-                                         base, listed as commit subjects
+                                         base, listed as commit subjects — or, when it
+                                         carries no lines at all, a branch whose commits
+                                         appear among the `--- landed` sections instead
 ```
 
 The date on a landing header is the day the work reached the default branch,

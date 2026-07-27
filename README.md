@@ -111,8 +111,9 @@ already being part of the base's history.
 A branch none of the three confirms is reported nowhere. That is deliberate:
 a squash can rewrite the subjects it absorbed, leaving no evidence to follow,
 and naming work as shipped on a guess is worse than leaving it out. Landings
-that carry no branch name are still reported alongside — bounded to the same
-window — so the work itself is not lost, only its attribution.
+that carry no branch name are still reported alongside — bounded to the last 7
+days unless you set a window — so the work itself is not lost, only its
+attribution. Branches you pasted are matched however old their landing is.
 
 ## Templates
 
