@@ -590,13 +590,15 @@ function escapeMarkerLines(text: string): string {
  * come straight off git's own formatting (a hex string; `YYYY-MM-DD` under
  * `--date=short`) and are never attacker-influenced, so they are used
  * verbatim to build this file's own `=== hash date author` line. `author`,
- * `subject`, and `rest` (the commit body, plus whatever `--stat` appends
- * after it — `--stat` is not a `%`-placeholder, so its diffstat text lands in
- * the same NUL-delimited chunk, after the body) are each attacker-controlled
- * and are each run through escapeMarkerLines before being interpolated. The
- * `...rest` rejoin (mirroring enumerateLandings') folds back together
- * anything past the fourth `\x01` — a commit message may itself contain a
- * literal `\x01`, which is not what delimits a field here; only the NUL is.
+ * `subject`, and every piece of `rest` (the commit body, plus whatever
+ * `--stat` appends after it — `--stat` is not a `%`-placeholder, so its
+ * diffstat text lands in the same NUL-delimited chunk, after the body) are
+ * each attacker-controlled and each run through escapeMarkerLines
+ * *independently, before* being rejoined with `\x01` — a commit message may
+ * itself contain a literal `\x01` (only NUL is refused), which shifts every
+ * field after it by one split; escaping the already-rejoined blob once would
+ * let a forged marker landing past the first such shift hide behind a raw
+ * `\x01` byte escapeMarkerLines does not treat as a line start.
  */
 async function runLog(args: string[], spec: GitSpec): Promise<string> {
   let result;
@@ -612,12 +614,22 @@ async function runLog(args: string[], spec: GitSpec): Promise<string> {
   const records: string[] = [];
   for (const chunk of result.stdout.split("\0")) {
     if (!chunk) continue;
-    const [hash, date, author, subject, ...rest] = chunk.split("\x01");
+    const fields = chunk.split("\x01");
+    const hash = fields[0];
+    const date = fields[1] ?? "";
     if (!hash) continue;
-    records.push(
-      `\n=== ${hash} ${date ?? ""} ${escapeMarkerLines(author ?? "")}\n` +
-        `${escapeMarkerLines(subject ?? "")}\n${escapeMarkerLines(rest.join("\x01"))}`
-    );
+    // Escape every field *before* rejoining, never after: a raw \x01 the
+    // subject or author itself carries (git allows it; only NUL is refused)
+    // shifts every field after it by one split, so a forged marker can land
+    // as a non-first piece of `rest` — joined back with a literal \x01, which
+    // escapeMarkerLines does not recognise as a line start. Escaping each
+    // split piece on its own lets its `^` see that piece's true beginning
+    // regardless of where the embedded \x01 put it; joining afterwards only
+    // concatenates already-escaped text. A chunk with no embedded \x01 (the
+    // ordinary case) degrades to exactly one piece per field, so this is
+    // byte-identical to escaping the rejoined whole.
+    const [author, subject, ...rest] = fields.slice(2).map((f) => escapeMarkerLines(f));
+    records.push(`\n=== ${hash} ${date} ${author ?? ""}\n${subject ?? ""}\n${rest.join("\x01")}`);
   }
   return records.join("").trim();
 }
