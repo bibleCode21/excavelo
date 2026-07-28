@@ -1,6 +1,7 @@
 ---
-status: draft
+status: confirmed
 ceremony: standard
+approved-commit: 84ec20802eee72d404463ab4b815ee15bf41687d
 ---
 # `[!git]`: a confirmed branch is reported by name whatever the window does
 
