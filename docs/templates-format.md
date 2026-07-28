@@ -136,13 +136,15 @@ silence. A nameless landing is never dropped for lacking a name, but under a
 selection it is bounded by the window (7 days by default), so pasting a branch
 name no longer dumps the base's whole history alongside it.
 
-Named landings keep taking no default window: an explicit selection is not
-silently bounded to a week, and `since:`/`until:` still bound every kind when
-the spec sets them. A repository where no pasted name matches keeps the plain
-no-selection behavior, 7-day window included. `branches:<glob>` (e.g.
-`branches:feature/2026/*`, `*` crosses `/`) selects the same way against a
-glob and is confirmed by the same three checks. Only local state is read —
-`git fetch` first if the branches live on a remote.
+When you paste branch names, named landings keep taking no default window: an
+explicit selection is not silently bounded to a week. `since:`/`until:` still
+bound every kind when the spec sets them. A repository where no pasted name
+matches keeps the plain no-selection behavior, 7-day window included.
+`branches:<glob>` (e.g. `branches:feature/2026/*`, `*` crosses `/`) selects
+against a glob and is confirmed by the same three checks, but keeps the 7-day
+default for **both** landing kinds — a glob names no specific branch, so there
+is no explicit paste to honor; set `since:` to reach further back. Only local
+state is read — `git fetch` first if the branches live on a remote.
 
 When the memo carries a work list — pasted branch lines, issue titles, or
 ticket ids — prompt rules make it a pure filter: an entry with no matching

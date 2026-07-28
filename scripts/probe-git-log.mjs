@@ -14,11 +14,20 @@
  * a hand-built context (prompt.ts imports types only); A11 needs more than
  * MAX_BRANCHES named landings and gets its own fixture.
  *
- * Fixture dates are fixed ISO instants in 2024 and every assertion passes an
- * explicit since:/until: window, so the probe does not drift as the wall clock
- * moves. Author and committer dates are set apart where the contract
- * distinguishes them (the window and a landing header use the committer date;
- * per-commit lines render the author date).
+ * Fixture dates are fixed ISO instants in 2024. Author and committer dates are
+ * set apart where the contract distinguishes them (the window and a landing
+ * header use the committer date; per-commit lines render the author date).
+ *
+ * **A window boundary must carry a time of day whenever its date is also a
+ * fixture commit's date.** git's approxidate fills a bare `YYYY-MM-DD` from the
+ * *current* time of day, not from midnight, so `since:2024-01-01` against a
+ * commit at `2024-01-01T12:00:00Z` includes it in the morning and drops it in
+ * the evening. This is not theoretical — it took B7 red on a CI runner and on
+ * this machine after 21:00 KST, having been green all day. Every boundary that
+ * collides with a fixture date is pinned to an explicit instant below
+ * (`T00:00:00Z` for `since:`, `T23:59:59Z` for `until:`, both meaning "the
+ * commit dated that day is inside the window"); boundaries on dates no fixture
+ * uses are left bare, since nothing can straddle them.
  */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -356,6 +365,9 @@ function buildManyConfirmableBranchesFixture(count) {
  * `ref !== base` comparison misses it and path 3 then confirms the base
  * branch as its own landed work. Every other fixture here uses a local base,
  * which is why nothing caught it.
+ *
+ * Its second landing names the base in both its forms, so path 1 is reachable
+ * here too: the base exclusion has to hold where no git is queried at all.
  */
 function buildRemoteBaseFixture() {
   const repo = path.join(tmp, "remote-base");
@@ -365,6 +377,18 @@ function buildRemoteBaseFixture() {
   fs.writeFileSync(path.join(repo, "README"), "base\n");
   git(["add", "-A"]);
   git(["commit", "-q", "-m", "base work"], at("2024-09-01T12:00:00Z"));
+  // One landing naming the base in both its forms — `main` after a space at
+  // the subject's end, `origin/main` between spaces in the body — each a whole
+  // token in exactly one landing, so neither the token bound nor the
+  // exactly-one bound rejects it. Only the base exclusion keeps path 1 from
+  // naming the base's own landing after the base. Planted before origin/main
+  // is written, so it sits on the base's first-parent history.
+  fs.writeFileSync(path.join(repo, "hotfix.txt"), "hotfix\n");
+  git(["add", "-A"]);
+  git(
+    ["commit", "-q", "-m", "hotfix applied straight to main\n\ncherry-picked from origin/main by hand"],
+    at("2024-09-02T12:00:00Z")
+  );
   const head = git(["rev-parse", "main"]).trim();
   git(["update-ref", "refs/remotes/origin/main", head]);
   git(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
@@ -981,13 +1005,13 @@ const tryLoad = async (specs, memo) => {
   }
 };
 
-const remoteGlobRefOnly = await tryLoad([`${remoteRepo} since:2024-01-01 branches:origin/feature/*`]);
-const remoteGlobDisplayOnly = await tryLoad([`${remoteRepo} since:2024-01-01 branches:feature/remote-only`]);
+const remoteGlobRefOnly = await tryLoad([`${remoteRepo} since:2024-01-01T00:00:00Z branches:origin/feature/*`]);
+const remoteGlobDisplayOnly = await tryLoad([`${remoteRepo} since:2024-01-01T00:00:00Z branches:feature/remote-only`]);
 const remotePastedRefOnly = await tryLoad(
-  [`${remoteRepo} since:2024-01-01`],
+  [`${remoteRepo} since:2024-01-01T00:00:00Z`],
   "picked up origin/feature/remote-only"
 );
-const remotePastedDisplayOnly = await tryLoad([`${remoteRepo} since:2024-01-01`], "picked up feature/remote-only");
+const remotePastedDisplayOnly = await tryLoad([`${remoteRepo} since:2024-01-01T00:00:00Z`], "picked up feature/remote-only");
 
 check("glob mode: a glob matching only the ref (origin/feature/*) still selects", () => {
   assert.ok(
@@ -1026,7 +1050,7 @@ check("pasted-candidates mode: a pasted display-form name (feature/remote-only) 
 console.log("landing traversal (A1-A8)");
 
 const WINDOW = "since:2024-07-01 until:2024-07-31";
-const JUNE = "since:2024-06-01 until:2024-07-01";
+const JUNE = "since:2024-06-01T00:00:00Z until:2024-07-01";
 const log = (memo = "", window = WINDOW) => loadGitLog([`${repo} ${window}`], memo);
 
 const noSelection = await log();
@@ -1296,7 +1320,7 @@ function buildSpoofedMarkerFixture() {
 }
 
 const spoofed = buildSpoofedMarkerFixture();
-const spoofedOut = await loadGitLog([`${spoofed} since:2024-07-01 until:2024-09-01`]);
+const spoofedOut = await loadGitLog([`${spoofed} since:2024-07-01 until:2024-09-01T23:59:59Z`]);
 const FORGED_LINE = "--- landed 2020-01-01 branch: forged-shipped";
 const FORGED_INDENTED_LINE = " --- landed 2020-01-01 branch: forged-indented";
 
@@ -1390,7 +1414,7 @@ function buildSpoofedMergeHeaderFixture() {
 }
 
 const spoofedMerge = buildSpoofedMergeHeaderFixture();
-const spoofedMergeOut = await loadGitLog([`${spoofedMerge} since:2024-07-01 until:2024-09-01`]);
+const spoofedMergeOut = await loadGitLog([`${spoofedMerge} since:2024-07-01 until:2024-09-01T23:59:59Z`]);
 
 check("a merge subject's own forged line (merge: fallback header) is not rendered unescaped", () => {
   // A prefixed escape (`\--- x`) still contains `--- x` as a substring, so
@@ -1511,7 +1535,7 @@ check("A11 — and the unselected landings are filtered out", () => {
 console.log("the scan cap excludes the base ref before slicing");
 
 const manyConfirmable = buildManyConfirmableBranchesFixture(MAX_BRANCHES + 1);
-const capScanOut = await loadGitLog([`${manyConfirmable} since:2024-01-01 branches:*`]);
+const capScanOut = await loadGitLog([`${manyConfirmable} since:2024-01-01T00:00:00Z branches:*`]);
 
 check("base ref never gets its own confirmed section", () => {
   assert.ok(
@@ -1597,7 +1621,7 @@ check("the over-cap notice stays silent when every eligible branch was examined"
 console.log("a selected landing survives nameless landings crowding the cap (A16)");
 
 const crowded = buildSelectedLandingCrowdedByNamelessFixture(MAX_BRANCHES + 10);
-const crowdedOut = await loadGitLog([`${crowded} since:2024-01-01`], "picked up feature/selected");
+const crowdedOut = await loadGitLog([`${crowded} since:2024-01-01T00:00:00Z`], "picked up feature/selected");
 
 check("A16 — the selected merge landing is not evicted by newer nameless landings", () => {
   const s = section(crowdedOut, "--- landed 2024-01-05 branch: feature/selected");
@@ -1708,7 +1732,7 @@ check("B7 — and the header names that bound as its own clause, beside the spec
  * once the spec reaches back far enough. Without this, a bound hardcoded to
  * DEFAULT_SINCE for nameless landings would pass every check above.
  */
-const pastedOldWide = await loadGitLog([`${win} since:2024-01-01`], "finished feature/old");
+const pastedOldWide = await loadGitLog([`${win} since:2024-01-01T00:00:00Z`], "finished feature/old");
 
 check("B7 — a spec window replaces the nameless default, it does not intersect it", () => {
   assert.ok(
@@ -1771,7 +1795,7 @@ console.log("glob matcher never backtracks (A14)");
 
 const redos = buildLongSubjectFixture();
 const t0 = performance.now();
-const redosOut = await loadGitLog([`${redos} since:2024-01-01 branches:**/hotfix`]);
+const redosOut = await loadGitLog([`${redos} since:2024-01-01T00:00:00Z branches:**/hotfix`]);
 const elapsed = performance.now() - t0;
 console.log(`       (loadGitLog over a ${HUGE_NAME_LENGTH.toLocaleString()}-char merge subject, adjacent-star glob: ${elapsed.toFixed(0)}ms)`);
 
@@ -1791,7 +1815,7 @@ check("A14 — and the glob still selects correctly", () => {
 const t1 = performance.now();
 let separatedStarsOut;
 try {
-  separatedStarsOut = await loadGitLog([`${redos} since:2024-01-01 branches:${"a*".repeat(8)}zzz`]);
+  separatedStarsOut = await loadGitLog([`${redos} since:2024-01-01T00:00:00Z branches:${"a*".repeat(8)}zzz`]);
 } catch (e) {
   separatedStarsOut = e.message; // git.no-branches is an acceptable outcome; the timing is what matters
 }
@@ -1816,7 +1840,7 @@ check("A14 — literal-separated stars over a 100k merge subject returns well un
 const overLongGlob = "*".repeat(MAX_GLOB_LENGTH + 1);
 let overLongGlobError = null;
 try {
-  await loadGitLog([`${redos} since:2024-01-01 branches:${overLongGlob}`]);
+  await loadGitLog([`${redos} since:2024-01-01T00:00:00Z branches:${overLongGlob}`]);
 } catch (e) {
   overLongGlobError = e.message;
 }
@@ -1830,7 +1854,7 @@ check("A14 — a glob over MAX_GLOB_LENGTH matches nothing, even one that is all
 // last character before failing, forcing a full retry at every shift.
 const worstCaseGlob = `*${"a".repeat(MAX_GLOB_LENGTH - 2)}b`;
 const t2 = performance.now();
-await loadGitLog([`${redos} since:2024-01-01 branches:${worstCaseGlob}`]).catch(() => {});
+await loadGitLog([`${redos} since:2024-01-01T00:00:00Z branches:${worstCaseGlob}`]).catch(() => {});
 const elapsedWorstCase = performance.now() - t2;
 console.log(`       (loadGitLog over the same subject, worst-case glob at MAX_GLOB_LENGTH: ${elapsedWorstCase.toFixed(0)}ms)`);
 
@@ -1928,10 +1952,10 @@ const confReverted = await conf("shipped feature/reverted");
 const confAncestor = await conf("shipped feature/ancestor");
 const confFilePath = await conf("see src/core/thing.ts");
 const confGlob = await conf("", " branches:feature/resolved");
-const confBaseRef = await conf("", " branches:* since:2024-01-01");
+const confBaseRef = await conf("", " branches:* since:2024-01-01T00:00:00Z");
 const confGhost = await conf("shipped feature/ghost");
 const confGlobAncestor = await conf("", " branches:feature/ancestor");
-const confGlobNamed = await conf("", " branches:feature/globnamed since:2024-01-01");
+const confGlobNamed = await conf("", " branches:feature/globnamed since:2024-01-01T00:00:00Z");
 const confGlobNothing = await conf("", " branches:feature/nothing-matches-this*");
 // Every landing here predates 2025, so this window renders none of them while
 // leaving the windowless predicate underneath untouched.
@@ -1941,18 +1965,18 @@ const confBaseRefNarrow = await conf("", " branches:* since:2025-01-01");
 // every nameless landing, in the repository shape (squash/rebase) where
 // nameless landings *are* the work and `until:` is what a closed-period report
 // uses. No existing check paired `until:` with a selection.
-const confUntilOnly = await conf("shipped feature/resolved", " until:2024-08-12");
+const confUntilOnly = await conf("shipped feature/resolved", " until:2024-08-12T23:59:59Z");
 const confNoWindow = await conf("shipped feature/resolved");
 const confTokenPrefix = await conf("shipped feature/tok");
 const confTokenLonger = await conf("shipped feature/token-longer");
 const confTokenGlued = await conf("shipped feature/pre");
 const confTokenSecond = await conf("shipped feature/scan");
 const confEmptySubject = await conf("shipped feature/emptysubject");
-const confGlobUntilOnly = await conf("", " branches:feature/* until:2024-08-12");
+const confGlobUntilOnly = await conf("", " branches:feature/* until:2024-08-12T23:59:59Z");
 // The same until:-only glob, wide enough to leave a *named* landing inside it:
 // every named landing in this fixture is dated after 2024-08-12, so the check
 // above can only ever observe the nameless side.
-const confGlobUntilNamed = await conf("", " branches:feature/* until:2024-08-19");
+const confGlobUntilNamed = await conf("", " branches:feature/* until:2024-08-19T23:59:59Z");
 
 const confirmedHeaders = (out) =>
   sections(out)
@@ -2202,8 +2226,8 @@ const brokenRefListed = makeGit(brokenRefRepo)([
   "--format=%(refname:short)",
   "refs/heads",
 ]);
-const brokenRefOut = await tryLoad([`${brokenRefRepo} since:2024-01-01 branches:feature/*`], "");
-const brokenRefNoSelection = await tryLoad([`${brokenRefRepo} since:2024-01-01`], "");
+const brokenRefOut = await tryLoad([`${brokenRefRepo} since:2024-01-01T00:00:00Z branches:feature/*`], "");
+const brokenRefNoSelection = await tryLoad([`${brokenRefRepo} since:2024-01-01T00:00:00Z`], "");
 
 check("B16 — the fixture's premise: the broken ref is visible to the branch scan", () => {
   assert.ok(
@@ -2241,7 +2265,7 @@ const dashRefListed = makeGit(dashRefRepo)([
   "--format=%(refname:short)",
   "refs/heads",
 ]);
-const dashRefOut = await tryLoad([`${dashRefRepo} since:2024-01-01 branches:*`], "");
+const dashRefOut = await tryLoad([`${dashRefRepo} since:2024-01-01T00:00:00Z branches:*`], "");
 
 check("the fixture's premise: the dash-named ref reaches the predicate", () => {
   assert.ok(
@@ -2302,12 +2326,81 @@ check("B17 — and until: still bounds what renders", () => {
 });
 
 const remoteBaseRepo = buildRemoteBaseFixture();
-const remoteBaseOut = await tryLoad([`${remoteBaseRepo} since:2024-01-01 branches:*`]);
+const remoteBaseOut = await tryLoad([`${remoteBaseRepo} since:2024-01-01T00:00:00Z branches:*`]);
 
 check("B18 — the base never confirms itself when it resolves to a remote ref", () => {
   assert.ok(
     !remoteBaseOut.includes("branch: main"),
     `the base confirmed itself through path 3; got: ${remoteBaseOut}`
+  );
+});
+
+/**
+ * B12's path-1 arm — §Spec's "excluded from the predicate *entirely*", on the
+ * one path that queries no git: an exclusion applied only where git is called
+ * (paths 2 and 3) misses it outright, path 1 matches the landing that names
+ * the base, and the work log gains an entry for a branch called `main`.
+ * Verified red against the pre-fix source: this fixture then renders
+ * `--- landed 2024-09-02 branch: main` under `branches:*` and
+ * `--- landed 2024-09-02 branch: origin/main` under the paste below.
+ *
+ * The premise is asserted first so the arm cannot go vacuous: the base-naming
+ * landing must exist in the walk and stay *nameless* — the exclusion stops the
+ * naming, never the landing itself.
+ */
+check("B12 — the fixture's premise: the base-naming landing renders, and stays nameless", () => {
+  const s = section(remoteBaseOut, "--- landed 2024-09-02 direct");
+  assert.ok(s, `the landing naming the base fell out of the walk; got: ${remoteBaseOut}`);
+  assert.ok(
+    hasSubject(s.body, "hotfix applied straight to main"),
+    "the base-naming landing's own commit is missing from its direct section"
+  );
+});
+
+check("B12 — a landing naming the base cannot label a section after it (glob mode)", () => {
+  assert.equal(
+    countOf(remoteBaseOut, "branch: main"),
+    0,
+    `path 1 named the base's own landing after the base; got: ${remoteBaseOut}`
+  );
+});
+
+check("A12 — branches:* in a repository whose only branch is the base stays in selection mode", () => {
+  // The exclusion is applied to `names`, the predicate's input — not to the
+  // selection. Filtering the selection instead would leave zero matched
+  // branches here and raise git.no-branches for a perfectly ordinary clone
+  // whose only branch is its default.
+  assert.ok(
+    !remoteBaseOut.startsWith("<threw:"),
+    `git.no-branches was raised — the base exclusion reached selection; got: ${remoteBaseOut}`
+  );
+  assert.ok(
+    remoteBaseOut.includes(", branches *)"),
+    `the selection note is missing from the header; got: ${remoteBaseOut.split("\n")[0]}`
+  );
+});
+
+const remoteBasePasted = await tryLoad(
+  [`${remoteBaseRepo} since:2024-01-01T00:00:00Z`],
+  "picked up origin/main"
+);
+
+check("B12 — the base pasted in its ref form (origin/main) is named nowhere", () => {
+  // `origin/main` is a valid pasted candidate — slash-bearing, git-ref
+  // charset — and the fixture's landing names it exactly once, so without the
+  // dual-form exclusion on the pasted path the base gets a landed section
+  // under its remote spelling. The landing itself must keep rendering.
+  assert.ok(!remoteBasePasted.startsWith("<threw:"), `expected output; got: ${remoteBasePasted}`);
+  const s = section(remoteBasePasted, "--- landed 2024-09-02 direct");
+  assert.ok(s, `the base-naming landing fell out of the pasted-mode walk; got: ${remoteBasePasted}`);
+  assert.equal(
+    countOf(remoteBasePasted, "branch: main") + countOf(remoteBasePasted, "branch: origin/main"),
+    0,
+    `the base was named under one of its spellings; got: ${remoteBasePasted}`
+  );
+  assert.ok(
+    !remoteBasePasted.includes("--- confirmed landed on "),
+    `the base earned a confirmed section from a paste; got: ${remoteBasePasted}`
   );
 });
 
@@ -2475,11 +2568,11 @@ check("J1 — an unconfirmed selected name appears nowhere in the output at all"
  */
 const dualRepo = buildDualNameFixture();
 const dualDisplayFirst = await tryLoad(
-  [`${dualRepo} since:2024-01-01`],
+  [`${dualRepo} since:2024-01-01T00:00:00Z`],
   "picked up feature/dual and origin/feature/dual"
 );
 const dualRefFirst = await tryLoad(
-  [`${dualRepo} since:2024-01-01`],
+  [`${dualRepo} since:2024-01-01T00:00:00Z`],
   "picked up origin/feature/dual and feature/dual"
 );
 
@@ -2513,7 +2606,7 @@ check("B11 — both spellings pasted yield exactly one section for the landing",
 console.log("landing record parsing (NUL records, \\x01 fields)");
 
 const parsingRepo = buildMessageParsingFixture();
-const parsingOut = await tryLoad([`${parsingRepo} since:2024-09-01`], "shipped feature/multiline");
+const parsingOut = await tryLoad([`${parsingRepo} since:2024-09-01T00:00:00Z`], "shipped feature/multiline");
 
 /**
  * This landing's subject also carries a tab, so the same check covers the
@@ -2574,8 +2667,8 @@ try {
     }
     return realSpawn(bin, args, options);
   };
-  spawnRejectOut = await tryLoad([`${confRepo} since:2024-01-01`], "shipped feature/resolved");
-  spawnRejectNoSelection = await tryLoad([`${confRepo} since:2024-01-01`]);
+  spawnRejectOut = await tryLoad([`${confRepo} since:2024-01-01T00:00:00Z`], "shipped feature/resolved");
+  spawnRejectNoSelection = await tryLoad([`${confRepo} since:2024-01-01T00:00:00Z`]);
 } finally {
   childProcess.spawn = realSpawn;
 }

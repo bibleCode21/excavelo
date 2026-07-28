@@ -310,9 +310,7 @@ async function enumerateBranches(repoPath: string): Promise<BranchRef[]> {
     const [full, short] = line.split("\t");
     if (!full || !short) continue;
     if (/^refs\/remotes\/[^/]+\/HEAD$/.test(full)) continue;
-    const display = full.startsWith("refs/remotes/")
-      ? short.split("/").slice(1).join("/")
-      : short;
+    const display = full.startsWith("refs/remotes/") ? dropRemotePrefix(short) : short;
     if (!display || seen.has(display)) continue;
     seen.add(display);
     out.push({ display, ref: short });
@@ -330,17 +328,41 @@ function selectBranches(branches: BranchRef[], test: (name: string) => boolean):
   return branches.filter((b) => test(b.display) || test(b.ref));
 }
 
+/** `origin/feature/x` -> `feature/x`. The display rule for any remote-tracking ref. */
+function dropRemotePrefix(short: string): string {
+  return short.split("/").slice(1).join("/");
+}
+
+/**
+ * Whether `name` refers to the base, in either of its two forms. The contract
+ * excludes the base from the predicate *entirely* — every path, not just the
+ * ones that query git — because `merge-base --is-ancestor <base> <base>` exits
+ * 0 and a landing message routinely mentions the base by name, so without this
+ * the base confirms itself and the work log gains an entry for a branch called
+ * `main`.
+ *
+ * Comparing the raw ref is not enough: enumerateBranches dedups by display and
+ * prefers the local ref, so an ordinary clone whose local `main` tracks
+ * `origin/main` lists {display:"main", ref:"main"} while resolveBaseRef returns
+ * `origin/main`. Both forms have to match.
+ */
+function namesBase(base: BranchRef, name: string): boolean {
+  const n = name.toLowerCase();
+  return n === base.ref.toLowerCase() || n === base.display.toLowerCase();
+}
+
 /**
  * The repo's default branch (origin/HEAD or a main/master fallback), if any.
  * This is what work has to land on to count as done; without it there is
  * nothing to source from and the caller falls back to a plain HEAD log.
  */
 async function resolveBaseRef(repoPath: string): Promise<BranchRef | null> {
-  // `display` mirrors enumerateBranches' own rule (drop the remote prefix), so
-  // the base can be recognised in that list however it was reached — an
-  // ordinary clone lists its local `main` while the base resolves to
-  // `origin/main`, and comparing raw refs would miss it.
-  const remote = (ref: string): BranchRef => ({ ref, display: ref.split("/").slice(1).join("/") });
+  // `display` runs through the same rule enumerateBranches applies, so the base
+  // can be recognised in that list however it was reached — an ordinary clone
+  // lists its local `main` while the base resolves to `origin/main`, and
+  // comparing raw refs would miss it. Sharing the helper is what keeps the two
+  // from drifting apart; namesBase's correctness depends on them agreeing.
+  const remote = (ref: string): BranchRef => ({ ref, display: dropRemotePrefix(ref) });
   try {
     const head = await runGit([
       "-C",
@@ -750,23 +772,19 @@ async function isAncestor(
 async function loadConfirmedSections(
   repoPath: string,
   spec: GitSpec,
-  base: string,
-  baseDisplay: string,
+  base: BranchRef,
   branches: BranchRef[],
   landings: Landing[],
   namedAlready: Set<string>
 ): Promise<string[]> {
   const sections: string[] = [];
-  // The base is excluded predicate-wide, not just from path 2: it is trivially
-  // its own ancestor, so path 3 would otherwise confirm it and the work log
-  // would gain an entry for a branch named `main`. Matching on `ref` alone is
-  // not enough — enumerateBranches dedups by display and prefers the local ref,
-  // so an ordinary clone whose local `main` tracks `origin/main` yields
-  // {display:"main", ref:"main"} while the base resolves to "origin/main".
+  // namesBase is applied again here rather than trusted from the caller: this
+  // is the one exclusion the contract states predicate-wide, and paths 2 and 3
+  // are where the base would confirm itself trivially.
   const eligible = branches.filter(
     (b) =>
-      b.ref !== base &&
-      b.display !== baseDisplay &&
+      !namesBase(base, b.ref) &&
+      !namesBase(base, b.display) &&
       !namedAlready.has(b.display.toLowerCase())
   );
   // The cap bounds the *scan*, not just the confirmations: a selection where
@@ -777,14 +795,14 @@ async function loadConfirmedSections(
   for (const branch of considered) {
     // Windowless on purpose: a window here would let an old unresolved commit
     // fall outside it and read as resolved.
-    const unique = await branchSubjects(repoPath, spec, base, branch.ref, false);
+    const unique = await branchSubjects(repoPath, spec, base.ref, branch.ref, false);
     let body: string | null = null;
     if (unique.length > 0) {
-      const unresolved = await branchSubjects(repoPath, spec, base, branch.ref, true);
+      const unresolved = await branchSubjects(repoPath, spec, base.ref, branch.ref, true);
       if (unresolved.every((s) => resolvesUniquely(s, landings))) {
         body = unique.map((s) => escapeMarkerLines(s)).join("\n");
       }
-    } else if (await isAncestor(repoPath, spec, branch.ref, base)) {
+    } else if (await isAncestor(repoPath, spec, branch.ref, base.ref)) {
       // Its commits *are* base commits and no range recovers which were its
       // work, so the header alone is the honest maximum.
       body = "";
@@ -795,7 +813,7 @@ async function loadConfirmedSections(
     // syntax rules already keep free of spaces and control characters, but
     // running them through keeps this file's stated rule true with no exception
     // a reader has to go verify.
-    const header = `--- confirmed landed on ${escapeMarkerLines(base)} branch: ${escapeMarkerLines(branch.display)}`;
+    const header = `--- confirmed landed on ${escapeMarkerLines(base.ref)} branch: ${escapeMarkerLines(branch.display)}`;
     sections.push(`${header}${body ? `\n${body}` : ""}`);
   }
   if (eligible.length > MAX_BRANCHES) {
@@ -884,19 +902,31 @@ export async function loadGitLog(specs: string[], memoText = ""): Promise<string
       // Both modes reduce to the same thing — a set of candidate names — so the
       // predicate below cannot tell how a branch was selected, which is right:
       // how it was picked has no bearing on whether it landed.
+      // `names` is the predicate's input and the base is excluded from it — all
+      // three paths, not just the two that query git. `branches:*` matches the
+      // base and `origin/master` is a valid pasted candidate, so leaving it in
+      // lets path 1 name a landing after the base itself: `hotfix applied
+      // straight to main` is enough, and path 1 queries nothing, so an
+      // exclusion applied only where git is called misses it entirely.
+      //
+      // `test` is deliberately *not* filtered. It decides selection membership,
+      // and A12 fixes that on whether a candidate matched something at all —
+      // narrowing it would make `branches:*` raise git.no-branches in a repo
+      // whose only branch is the default, and would drop merge-parsed names
+      // (J1 keeps those on their existing path).
       let test: (name: string) => boolean;
       let names: string[];
       if (spec.branches) {
         const glob = spec.branches;
         test = (name: string) => globMatch(name, glob);
         selectedBranches = selectBranches(branches, test);
-        names = selectedBranches.map((b) => b.display);
+        names = selectedBranches.map((b) => b.display).filter((n) => !namesBase(base, n));
         note = `, branches ${spec.branches}`;
       } else {
         const wanted = new Set(candidates.map((c) => c.toLowerCase()));
         test = (name: string) => wanted.has(name.toLowerCase());
         selectedBranches = selectBranches(branches, test);
-        names = candidates;
+        names = candidates.filter((c) => !namesBase(base, c));
         note = ", branches named in the memo";
       }
       // A name path 1 assigned is selected by construction, but it is stored in
@@ -986,15 +1016,7 @@ export async function loadGitLog(specs: string[], memoText = ""): Promise<string
       sections.push(...(await loadLandingSections(repoPath, spec, selected)));
       const named = new Set(judged.flatMap((l) => (l.branch ? [l.branch.toLowerCase()] : [])));
       sections.push(
-        ...(await loadConfirmedSections(
-          repoPath,
-          spec,
-          base.ref,
-          base.display,
-          selectedBranches,
-          judged,
-          named
-        ))
+        ...(await loadConfirmedSections(repoPath, spec, base, selectedBranches, judged, named))
       );
     } else {
       since = spec.since ?? DEFAULT_SINCE;
