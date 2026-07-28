@@ -532,6 +532,15 @@ function landingHeader(landing: Landing): string {
   return `--- landed ${landing.date} direct`;
 }
 
+/**
+ * NUL separates records and `\x01` separates fields — the same reasoning as
+ * enumerateLandings' own format (NUL is a byte git refuses to let a commit
+ * message contain, so it is a genuinely unforgeable record boundary). Unlike
+ * the old `--pretty=format:%n=== %h %ad %an%n%s%n%b`, the `=== hash date
+ * author` line itself is no longer printed by git — runLog builds it from
+ * the parsed `hash`/`date` fields instead, which is what lets `=== ` become
+ * escapable content everywhere else (see escapeMarkerLines).
+ */
 function logArgs(repoPath: string, since: string | null, until: string | null): string[] {
   return [
     "-C",
@@ -543,26 +552,28 @@ function logArgs(repoPath: string, since: string | null, until: string | null): 
     "--date=short",
     "--no-color",
     "--stat",
-    "--pretty=format:%n=== %h %ad %an%n%s%n%b",
+    "--pretty=format:%x00%h\x01%ad\x01%an\x01%s\x01%b",
   ];
 }
 
 /**
- * `--- ` (optionally indented) at the start of a line is reserved for this
- * file's own section headers (`--- landed ...`, `--- confirmed landed on ...`) —
+ * `--- ` and `=== ` (optionally indented) at the start of a line are reserved
+ * for this file's own section headers (`--- landed ...`, `--- confirmed
+ * landed on ...`) and its own commit-record marker (`=== hash date author`) —
  * indentation is tolerated on the *input* side because an LLM reads a
  * slightly-indented line as the same sentinel even though this file itself
  * never emits one indented. A commit belongs to whichever repository a
- * [!git] callout names, so its subject/body is attacker-controlled and out
- * of this codebase's control. The stakes rose when not-yet-landed sections
- * were removed: prompt.ts now tells the LLM that *every* section in the log
- * is work that shipped, so a forged `--- landed` line planted in a commit
- * message is believed outright rather than merely competing with a real
- * landed section. Every caller that interpolates commit-sourced text next to
- * this file's own header syntax must run it through here first — currently
- * runLog's output (every commit-rendering path), landingHeader's
- * subject/branch interpolation (above), and loadConfirmedSections' header and
- * subject list.
+ * [!git] callout names, so its author/subject/body is attacker-controlled and
+ * out of this codebase's control. The stakes rose when not-yet-landed
+ * sections were removed: prompt.ts now tells the LLM that *every* section in
+ * the log is work that shipped, so a forged `--- landed` line — or, since
+ * runLog builds `=== ` lines from parsed fields rather than passing git's own
+ * literal through, a forged `=== ` commit record — planted in a commit is
+ * believed outright rather than merely competing with a real one. Every
+ * caller that interpolates commit-sourced text next to this file's own header
+ * syntax must run it through here first — currently runLog's parsed fields
+ * (every commit-rendering path), landingHeader's subject/branch interpolation
+ * (above), and loadConfirmedSections' header and subject list.
  *
  * `^` under /m recognises only LF, CR, LS and PS as line starts, but git keeps
  * VT (0x0b), FF (0x0c) and NEL (0x85) in a commit message verbatim, and a
@@ -570,10 +581,23 @@ function logArgs(repoPath: string, since: string | null, until: string | null): 
  * explicitly rather than trusted to be harmless.
  */
 function escapeMarkerLines(text: string): string {
-  return text.replace(/(^|[\v\f\u0085])([ \t]*)--- /gm, "$1$2\\--- ");
+  return text.replace(/(^|[\v\f\u0085])([ \t]*)(--- |=== )/gm, "$1$2\\$3");
 }
 
-/** Runs one rendering `git log`, mapping every failure onto the git.failed contract. */
+/**
+ * Runs one rendering `git log` and reconstructs its record text field by
+ * field, mapping every failure onto the git.failed contract. `hash`/`date`
+ * come straight off git's own formatting (a hex string; `YYYY-MM-DD` under
+ * `--date=short`) and are never attacker-influenced, so they are used
+ * verbatim to build this file's own `=== hash date author` line. `author`,
+ * `subject`, and `rest` (the commit body, plus whatever `--stat` appends
+ * after it — `--stat` is not a `%`-placeholder, so its diffstat text lands in
+ * the same NUL-delimited chunk, after the body) are each attacker-controlled
+ * and are each run through escapeMarkerLines before being interpolated. The
+ * `...rest` rejoin (mirroring enumerateLandings') folds back together
+ * anything past the fourth `\x01` — a commit message may itself contain a
+ * literal `\x01`, which is not what delimits a field here; only the NUL is.
+ */
 async function runLog(args: string[], spec: GitSpec): Promise<string> {
   let result;
   try {
@@ -585,7 +609,17 @@ async function runLog(args: string[], spec: GitSpec): Promise<string> {
     const detail = result.stderr.trim().split("\n")[0] ?? "";
     throw new Error(t("git.failed", { path: spec.path, error: detail }));
   }
-  return escapeMarkerLines(result.stdout.trim());
+  const records: string[] = [];
+  for (const chunk of result.stdout.split("\0")) {
+    if (!chunk) continue;
+    const [hash, date, author, subject, ...rest] = chunk.split("\x01");
+    if (!hash) continue;
+    records.push(
+      `\n=== ${hash} ${date ?? ""} ${escapeMarkerLines(author ?? "")}\n` +
+        `${escapeMarkerLines(subject ?? "")}\n${escapeMarkerLines(rest.join("\x01"))}`
+    );
+  }
+  return records.join("").trim();
 }
 
 /**
