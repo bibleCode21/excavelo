@@ -1,6 +1,7 @@
 ---
-status: draft
+status: confirmed
 ceremony: standard
+approved-commit: 6489169e8d4e3a4dcaa17753bc73be53c0e8155f
 ---
 # `[!git]`: a forged `=== ` commit-record line renders as escaped text, never as a real record
 
