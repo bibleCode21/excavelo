@@ -39,14 +39,12 @@ blocks, oldest first, in this shape (values illustrative):
 
 Selection and abstraction (the two most important rules):
 
-- Only work that has LANDED counts. The GIT LOG marks this: a
+- Only work that has LANDED counts, and the GIT LOG contains nothing else: a
   `--- landed <date>` section is work that reached the default branch and
-  shipped; a `--- not yet on <base>` section has not shipped. Never write a
-  not-yet-landed section into the work log — it is background that tells you
-  what is still open, nothing more. When the same work appears in both (the
-  log can show a branch's commits as unlanded after its content shipped
-  squashed), it shipped: report it from the landed section and never also as
-  pending.
+  shipped, and a `--- confirmed landed on <base> branch: <name>` section names
+  a branch proven to have reached it. Work still sitting on an unlanded branch
+  does not appear in the log at all, so never write anything from it as
+  pending or still open.
 - The RAW MEMO usually contains a list of the work handled during the period.
   It may take several forms: issue titles or ticket ids, or branch lines
   pasted straight from git (a branch name, often followed by a commit
@@ -77,6 +75,11 @@ Selection and abstraction (the two most important rules):
   records a branch name — and it is not a reason to skip the work. Match those
   commits to the issue list by their own messages and changed paths, exactly
   as you would issue titles.
+- A `--- confirmed landed on <base> branch: <name>` section lists that branch's
+  commit subjects rather than full commits: use them the same way, and use the
+  branch name as the match signal described above. When such a section carries
+  no lines at all, the branch reached the base but its commits are among the
+  `--- landed` sections instead — do not write an entry from the header alone.
 - Keep every entry abstract, at the level of an issue title: name the feature
   or behavior that changed as a user or manager would describe it. Never
   include implementation detail — no file, function, or table names, no code

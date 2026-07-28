@@ -7,6 +7,15 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Changed
+
+- **`[!git]` now confirms which of your branches actually reached the default branch.** Paste branch names into a memo and ExcaVelo checks each one against the base three ways — a landing whose message names it (so a branch deleted after merging still counts), every commit subject of the branch resolving to exactly one landing, or the branch already being part of the base's history — and reports the confirmed ones by name under `--- confirmed landed on <base> branch: <name>`. This closes the squash/rebase gap left open in 1.4.0: in a repository whose history carries no merge commits, pasted branch names previously appeared nowhere in the output at all.
+- **Landings without a branch name are now bounded by the window when you select branches.** Previously a pasted selection walked the base's entire history with no window, which on a real repository produced 55,000 characters of log for a week's work.
+
+### Removed
+
+- **`--- not yet on <base>` sections.** `[!git]` reports only what reached the default branch; work still on a branch is no longer included, and the `work-report` template's "In progress / carried over" section is now filled from the memo alone. A branch that cannot be confirmed as landed is reported nowhere rather than guessed at — a squash that rewrites the subjects it absorbs leaves no evidence to follow, and naming work as shipped on a guess is worse than omitting it.
+
 ## [1.4.8] - 2026-07-21
 
 ### Added
