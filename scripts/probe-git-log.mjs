@@ -1350,6 +1350,43 @@ const isAncestorOfBase = (hash) => {
   }
 };
 
+/**
+ * Characterization (docs/specs/git-log-marker-reserved-vocab.md, pre-refactor
+ * safety net for the upcoming NUL/\x01 parsing rewrite of logArgs/runLog).
+ * These two pin today's exact byte layout in shapes no existing check
+ * constrains — every check touching a landed section's body so far uses loose
+ * subject/substring matching (hasSubject, `assert.match` anchored per-line),
+ * which a spacing regression sails straight through. Not D-series checks
+ * (those, added alongside the fix itself, pin the new `=== `-forgery
+ * behavior); these pin the old behavior the rewrite's Preservation contract
+ * promises to reproduce byte-for-byte.
+ */
+check("characterization — a multi-commit landing's records are joined by exactly two blank lines", () => {
+  // The Preservation contract names this exactly: "the double-blank-line gap
+  // between records that --stat's own trailing blank line plus the next
+  // record's leading %n used to produce."
+  const s = section(noSelection, MERGED_HEADER);
+  assert.ok(s, `expected a section headed "${MERGED_HEADER}"`);
+  const [h1, h2] = hashesIn(s.body);
+  assert.equal(
+    s.body.replace(/\n+$/, ""),
+    `=== ${h1} 2024-06-02 probe\nmerged: second\n\n merged-2.txt | 1 +\n 1 file changed, 1 insertion(+)` +
+      `\n\n\n=== ${h2} 2024-06-01 probe\nmerged: first\n\n merged-1.txt | 1 +\n 1 file changed, 1 insertion(+)`,
+    `record-to-record spacing drifted from today's byte layout; got: ${JSON.stringify(s.body)}`
+  );
+});
+
+check("characterization — a body-less commit's block is subject, one blank line, then the diffstat verbatim", () => {
+  const s = section(noSelection, "--- landed 2024-07-14 direct");
+  assert.ok(s, "expected a direct landing");
+  const [hash] = hashesIn(s.body);
+  assert.equal(
+    s.body.replace(/\n+$/, ""),
+    `=== ${hash} 2024-06-15 probe\ndirect work on main\n\n direct.txt | 1 +\n 1 file changed, 1 insertion(+)`,
+    `a body-less commit's rendered block drifted from today's byte layout; got: ${JSON.stringify(s.body)}`
+  );
+});
+
 check("I1 — every commit under a landed section is reachable from the base", () => {
   const rendered = landedSections(noSelection).flatMap((s) => hashesIn(s.body));
   assert.ok(rendered.length > 0, "no commits rendered — the invariant would hold vacuously");
@@ -2142,6 +2179,27 @@ check("B1 — a landing naming the branch confirms it, with no ref for it at all
   assert.ok(
     hasSubject(s.body, "Add the named feature (#7)"),
     "the landing's own commit is missing from its section"
+  );
+});
+
+/**
+ * Characterization (docs/specs/git-log-marker-reserved-vocab.md, pre-refactor
+ * safety net) — the counterpart to the two body-less/multi-commit pins above,
+ * for a commit whose message actually carries a body. No existing check
+ * exercises a real multi-line body through runLog's rendering (every commit in
+ * buildFixture() is subject-only); this pins that the body's own text follows
+ * the subject with no blank line inserted (`%s%n%b` has none), while the
+ * diffstat still gets its usual one blank line of separation regardless.
+ */
+check("characterization — a body-bearing commit's block is subject, body, one blank line, then the diffstat verbatim", () => {
+  const s = section(confNamed, "--- landed 2024-08-10 branch: feature/named");
+  assert.ok(s, `expected the landing to be named; got: ${confNamed}`);
+  const [hash] = hashesIn(s.body);
+  assert.equal(
+    s.body.replace(/\n+$/, ""),
+    `=== ${hash} 2024-08-10 probe\nAdd the named feature (#7)\nSquash-merge-from: feature/named` +
+      `\n\n named.txt | 1 +\n 1 file changed, 1 insertion(+)`,
+    `a body-bearing commit's rendered block drifted from today's byte layout; got: ${JSON.stringify(s.body)}`
   );
 });
 
