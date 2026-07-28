@@ -78,8 +78,11 @@ Selection and abstraction (the two most important rules):
 - A `--- confirmed landed on <base> branch: <name>` section lists that branch's
   commit subjects rather than full commits: use them the same way, and use the
   branch name as the match signal described above. When such a section carries
-  no lines at all, the branch reached the base but its commits are among the
-  `--- landed` sections instead — do not write an entry from the header alone.
+  no lines at all, the branch reached the base but its commits are either
+  among the `--- landed` sections instead or not in this log at all — do not
+  write an entry from the header alone. A `(landed <date>)` suffix on the
+  header names the one landing that confirmed the branch; its absence means
+  only ancestry proved it, with no single landing to date.
 - Keep every entry abstract, at the level of an issue title: name the feature
   or behavior that changed as a user or manager would describe it. Never
   include implementation detail — no file, function, or table names, no code
