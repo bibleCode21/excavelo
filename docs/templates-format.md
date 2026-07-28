@@ -111,13 +111,28 @@ where work counts as done. Each entry on its first-parent history is one
                                          a selected branch proven to have reached the
                                          base, listed as commit subjects — or, when it
                                          carries no lines at all, a branch whose commits
-                                         appear among the `--- landed` sections instead
+                                         either appear among the `--- landed` sections
+                                         instead or are not in this log at all
+--- confirmed landed on <base> branch: <name> (landed <date>)
+                                         the same label, dated: a landing named this
+                                         branch but did not itself render (outside the
+                                         window, past the cap, or an empty body) — the
+                                         date is that landing's own. No date at all means
+                                         only ancestry proved the branch, with no single
+                                         landing to date
 ```
 
 The date on a landing header is the day the work reached the default branch,
 not the day it was written, and `since:`/`until:` bound that same date. Merge,
 squash, and rebase workflows all work without configuration: a merge has two
 or more parents and expands; anything else *is* its own landing.
+
+**A branch a landing names is reported by name whatever the window does.**
+Narrowing `since:`/`until:` never removes a branch's name from the log — only
+whether its commits are shown alongside it. If the naming landing renders, the
+branch's full `--- landed` section carries it; if not, the dated
+`--- confirmed landed on` form above does, up to the same per-kind cap every
+other section obeys.
 
 **Nothing that has not reached the default branch appears in the log.** Work
 sitting on an unlanded branch is not reported at all — not as pending, not as

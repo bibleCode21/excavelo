@@ -396,6 +396,42 @@ function buildRemoteBaseFixture() {
 }
 
 /**
+ * Panel-found regression (git-log-named-window-invariance, full-panel
+ * correctness review): a merge subject can *parse* to the base's own name —
+ * `Merge pull request #N from someuser/main` is an ordinary shape whenever a
+ * contributor's fork also defaults to `main` — and `branches:*` selects the
+ * base too. `namedSelected`'s derivation had no `namesBase` guard, unlike
+ * every sibling derivation in the same function (`names`, `eligible`), so the
+ * base could confirm itself by name once its naming landing took the new
+ * header-only form (any window that doesn't cover this 2024 date, which the
+ * 7-day glob default never does). B12 already forbids confirming the base by
+ * any path; this fixture is the one shape `buildRemoteBaseFixture` (path 1,
+ * message-mention only) cannot reach, because it has no merge landing at all.
+ */
+function buildBaseNamedMergeFixture() {
+  const repo = path.join(tmp, "base-named-merge");
+  fs.mkdirSync(repo);
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  const git = makeGit(repo);
+  fs.writeFileSync(path.join(repo, "README"), "base\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", "base"], at("2024-01-01T12:00:00Z"));
+  const base = git(["rev-parse", "main"]).trim();
+  const tree = git(["rev-parse", "main^{tree}"]).trim();
+  const side = git(
+    ["commit-tree", tree, "-p", base, "-m", "some fork work"],
+    at("2024-03-01T11:00:00Z")
+  ).trim();
+  const merge = git(
+    ["commit-tree", tree, "-p", base, "-p", side, "-m", "Merge pull request #5 from someuser/main"],
+    at("2024-03-01T12:00:00Z")
+  ).trim();
+  git(["update-ref", "refs/heads/main", merge]);
+  git(["reset", "-q", "--hard", "main"]);
+  return repo;
+}
+
+/**
  * git-log-landed-confirmation's fixture. Every landing here is single-parent —
  * a squash/rebase repository, the shape the landed predicate exists for, where
  * no landing carries a branch name of its own. It plants one instance of each
@@ -660,6 +696,73 @@ function buildDualNameFixture() {
     ["commit", "-q", "-m", "Add the dual feature (#11)\n\nSquash-merge-from: origin/feature/dual"],
     at("2024-01-03T12:00:00Z")
   );
+  return repo;
+}
+
+/**
+ * git-log-named-window-invariance's C4 fixture: a branch merged normally
+ * (so its landing is merge-parsed as the branch's *display* form) and then
+ * converted to remote-tracking-only — display "feature/remoteonly", ref
+ * "origin/feature/remoteonly" — mirroring an ordinary clone where the source
+ * branch was deleted locally after fetch. Neither existing "two spellings"
+ * fixture serves this: buildRemoteTrackingFixture's landing deliberately
+ * names no branch (path 1 must not fire there), and buildDualNameFixture's
+ * landing is a single-parent squash, so neither carries a merge-parsed name
+ * to fold.
+ */
+function buildRemoteTrackingMergedFixture() {
+  const repo = path.join(tmp, "remote-tracking-merged");
+  fs.mkdirSync(repo);
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  const git = makeGit(repo);
+  fs.writeFileSync(path.join(repo, "README"), "base\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", "base"], at("2024-01-01T12:00:00Z"));
+
+  git(["checkout", "-q", "-b", "feature/remoteonly"]);
+  fs.writeFileSync(path.join(repo, "w.txt"), "x\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", "remoteonly: the work"], at("2024-02-01T12:00:00Z"));
+  git(["checkout", "-q", "main"]);
+  git(
+    ["merge", "--no-ff", "-m", "Merge branch 'feature/remoteonly'", "feature/remoteonly"],
+    at("2024-02-02T12:00:00Z")
+  );
+
+  const tip = git(["rev-parse", "feature/remoteonly"]).trim();
+  git(["update-ref", "refs/remotes/origin/feature/remoteonly", tip]);
+  git(["branch", "-q", "-D", "feature/remoteonly"]);
+  return repo;
+}
+
+/**
+ * git-log-named-window-invariance's C2 fixture: `verify-path1only.mjs`'s
+ * shape, kept in the probe rather than only as a throwaway. A live ref that
+ * is *not* an ancestor of the base and whose only base-unique subject occurs
+ * in no landing — paths 2 and 3 both fail — plus a landing whose message
+ * merely mentions the branch by name, which is path 1's entire premise. This
+ * is the fixture the rejected "fall through to paths 2/3" fix would still
+ * have left silent.
+ */
+function buildPathOneOnlyFixture() {
+  const repo = path.join(tmp, "path1only");
+  fs.mkdirSync(repo);
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  const git = makeGit(repo);
+  fs.writeFileSync(path.join(repo, "README"), "base\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", "base"], at("2024-01-01T12:00:00Z"));
+
+  git(["checkout", "-q", "-b", "feature/p1"]);
+  fs.writeFileSync(path.join(repo, "w.txt"), "2\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", "p1: work whose subject landed nowhere"], at("2024-02-01T12:00:00Z"));
+  git(["checkout", "-q", "main"]);
+
+  fs.writeFileSync(path.join(repo, "l.txt"), "3\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", "wrap up the work from feature/p1"], at("2024-07-10T12:00:00Z"));
+
   return repo;
 }
 
@@ -1922,6 +2025,42 @@ check("B9 — both templates name the new label", () => {
   }
 });
 
+/**
+ * C7 — git-log-named-window-invariance. A header-only confirmed section now
+ * has a third reason (a cap-evicted or out-of-window named landing), not just
+ * the two A9/B9 shipped ("its commits are among the `--- landed` sections
+ * instead"). Both templates and the prompt rule must say the commits can also
+ * be nowhere in the log, or the model is told to hunt for commits that do not
+ * exist. Each must also explain the `(landed <date>)` suffix, since a reader
+ * who does not know it exists has no way to tell a dated header-only section
+ * from a dateless (path-3, ancestry-only) one.
+ */
+check("C7 — both templates and the prompt rule cover the third header-only reason", () => {
+  for (const [name, body] of [
+    ["work-log.md", workLog],
+    ["work-report.md", workReport],
+    ["prompt.ts's git rule", withGit.user],
+  ]) {
+    assert.ok(
+      body.includes("not in this log at all"),
+      `${name} still says a header-only section's commits are always among the '--- landed' sections`
+    );
+  }
+});
+
+check("C7 — both templates and the prompt rule describe the date suffix", () => {
+  for (const [name, body] of [
+    ["work-log.md", workLog],
+    ["work-report.md", workReport],
+    ["prompt.ts's git rule", withGit.user],
+  ]) {
+    assert.ok(
+      body.includes("(landed <date>)"),
+      `${name} does not describe the '(landed <date>)' suffix`
+    );
+  }
+});
+
 check("B9 — In progress / carried over is memo-sourced only", () => {
   const heading = "## In progress / carried over";
   const idx = workReport.indexOf(heading);
@@ -1982,6 +2121,19 @@ const confirmedHeaders = (out) =>
   sections(out)
     .filter((s) => s.header.startsWith("--- confirmed landed on "))
     .map((s) => s.header)
+    .sort();
+
+/**
+ * Every branch name reported by name anywhere — a `--- landed ... branch:`
+ * header or a `--- confirmed landed on ... branch:` header (dated or not).
+ * git-log-named-window-invariance's C3 needs this, not `confirmedHeaders`
+ * alone: a named landing can move from the first form to the second as the
+ * window narrows, so comparing only the second form's headers reads that
+ * move as a changed confirmed set when the name itself never left.
+ */
+const reportedBranchNames = (out) =>
+  [...out.matchAll(/^--- (?:landed \S+ branch|confirmed landed on \S+ branch): (\S+)/gm)]
+    .map((m) => m[1])
     .sort();
 
 check("B1 — a landing naming the branch confirms it, with no ref for it at all", () => {
@@ -2073,24 +2225,28 @@ check("B6/J4 — no selection mode emits a not-yet-landed section", () => {
 });
 
 /**
- * B8 — "narrowing since: does not change which branches are confirmed, only
- * which landings render". Both clauses have to be asserted together or the
- * criterion passes for the wrong reason: an unchanged confirmed set proves
- * nothing unless the narrowing demonstrably reached the rendering, and a
- * changed rendering proves nothing unless the confirmed set is watched.
+ * B8/C3 — "narrowing since: does not change which branches are confirmed,
+ * only which landings render". Restated by git-log-named-window-invariance
+ * over the stronger set the original B8 was reaching for: `confirmedHeaders`
+ * alone breaks once a merge-parsed name can take the header-only form,
+ * because narrowing the window here moves feature/globnamed, feature/scan
+ * and feature/token-longer's landings out of `--- landed` sections and into
+ * dated `--- confirmed landed on` ones — a real move, not a lost
+ * confirmation. `reportedBranchNames` is invariant to which of the two forms
+ * carried the name, so it is what the criterion actually requires.
  *
- * Compared as whole sets rather than one branch at a time — the failure this
- * guards against is a window leaking into the predicate, which would drop the
- * branches whose evidence sits outside the window, and only a set comparison
- * notices a branch that quietly stopped being confirmed.
+ * Both clauses have to be asserted together or the criterion passes for the
+ * wrong reason: an unchanged name set proves nothing unless the narrowing
+ * demonstrably reached the rendering (the check below), and a changed
+ * rendering proves nothing unless the name set is watched.
  */
-check("B8 — narrowing the window leaves the confirmed set identical", () => {
-  const wide = confirmedHeaders(confBaseRef);
-  assert.ok(wide.length > 0, "no branch is confirmed at all — the comparison would hold vacuously");
+check("C3 — narrowing the window leaves the reported name set identical (B8, restated)", () => {
+  const wide = reportedBranchNames(confBaseRef);
+  assert.ok(wide.length > 0, "no branch is named at all — the comparison would hold vacuously");
   assert.deepEqual(
-    confirmedHeaders(confBaseRefNarrow),
+    reportedBranchNames(confBaseRefNarrow),
     wide,
-    "a narrower since: changed which branches are confirmed — the window reached the predicate"
+    "a narrower since: changed which branch names were reported — the window reached the predicate"
   );
 });
 
@@ -2688,6 +2844,200 @@ check("and it is the predicate that raises it — no selection, no rejection", (
   assert.ok(
     !spawnRejectNoSelection.startsWith("<threw:"),
     `the same repository failed with no selection at all, so the stub reached past the predicate: ${spawnRejectNoSelection}`
+  );
+});
+
+/**
+ * C1-C9 — git-log-named-window-invariance. A named confirmation (path 1's
+ * message match, or a merge-parsed name) is window-invariant: narrowing the
+ * window never drops the branch's name from the output, only whether its
+ * commits are shown alongside it. Three shapes were measured end to end
+ * before this contract (checkpoints/git-log-landed-repros/): a merge-parsed
+ * name outside a glob's default window (C1), a pasted name outside an
+ * explicit window on a branch paths 2 and 3 both fail (C2), and a
+ * merge-parsed name whose only pasted spelling is the branch's ref form,
+ * no window involved at all (C4).
+ */
+console.log("named window invariance (C1-C9)");
+
+const c1Out = await tryLoad([`${repo} branches:feature/merged`]);
+
+const baseNamedMergeRepo = buildBaseNamedMergeFixture();
+// No window: the merge is dated 2024, so DEFAULT_SINCE excludes it from
+// rendering and only the new header-only path (this fix's target) is
+// reachable. A wide window instead renders it in full — a separate,
+// pre-existing gap in the render-side `hit()` filter that predates this
+// contract (§Non-goals: "the landed predicate itself" is out of scope) and
+// is tracked as a new deferred-followups item, not fixed here.
+const baseNamedMergeOut = await tryLoad([`${baseNamedMergeRepo} branches:*`]);
+
+check("B12 — a merge subject parsing to the base's own name does not confirm the base (panel regression)", () => {
+  assert.ok(
+    !baseNamedMergeOut.includes("branch: main"),
+    `the base confirmed itself via a merge-parsed name; got: ${baseNamedMergeOut}`
+  );
+});
+
+check("C1 — a merge-parsed name outside the default window is reported header-only, dated", () => {
+  assert.ok(
+    c1Out.includes("--- confirmed landed on main branch: feature/merged (landed 2024-07-10)"),
+    `expected a dated header-only confirmed section; got: ${c1Out}`
+  );
+  assert.ok(
+    !hasSubject(c1Out, "merged: first"),
+    "the landing's commits rendered even though it is outside the default window"
+  );
+});
+
+check("C5 — the date suffix appears only on the name-confirmed form, never on paths 2/3", () => {
+  assert.ok(c1Out.includes("(landed 2024-07-10)"), "the name-confirmed header lost its date suffix");
+  assert.ok(
+    confAncestor.includes("--- confirmed landed on main branch: feature/ancestor") &&
+      !confAncestor.includes("branch: feature/ancestor (landed"),
+    "a path-3 (ancestry-only) header gained a date suffix it must not carry"
+  );
+  assert.ok(
+    section(confResolved, "--- confirmed landed on main branch: feature/resolved"),
+    "expected the path-2 confirmed section"
+  );
+  assert.ok(
+    !confResolved.includes("branch: feature/resolved (landed"),
+    "a path-2 header gained a date suffix it must not carry"
+  );
+});
+
+check("C6 — a name-confirmed header-only section is its own section, not a landed section, and reported exactly once", () => {
+  assert.equal(
+    sections(c1Out).filter((s) => s.header.includes("feature/merged")).length,
+    1,
+    "feature/merged was reported more than once"
+  );
+  assert.equal(
+    landedSections(c1Out).length,
+    0,
+    "the header-only confirmed section was counted as a landed section"
+  );
+});
+
+const pathOneOnlyRepo = buildPathOneOnlyFixture();
+const p1Wide = await tryLoad([`${pathOneOnlyRepo} since:2024-01-01T00:00:00Z`], "shipped feature/p1");
+const p1Narrow = await tryLoad([`${pathOneOnlyRepo} since:2024-09-01T00:00:00Z`], "shipped feature/p1");
+
+check("C2 — a path-1-only branch (paths 2 and 3 both fail) renders in full inside its window", () => {
+  const s = section(p1Wide, "--- landed 2024-07-10 branch: feature/p1");
+  assert.ok(s, `expected the naming landing to render in full; got: ${p1Wide}`);
+  assert.ok(
+    hasSubject(s.body, "wrap up the work from feature/p1"),
+    "the naming landing's own commit is missing from its section"
+  );
+});
+
+check("C2 — the same branch is reported header-only, dated, once its landing falls outside the window", () => {
+  assert.ok(
+    p1Narrow.includes("--- confirmed landed on main branch: feature/p1 (landed 2024-07-10)"),
+    `expected a dated header-only confirmed section; got: ${p1Narrow}`
+  );
+  assert.ok(
+    !hasSubject(p1Narrow, "wrap up the work from feature/p1"),
+    "the landing's commit rendered even though it is outside the window"
+  );
+});
+
+const remoteOnlyMergedRepo = buildRemoteTrackingMergedFixture();
+const c4Wide = await tryLoad(
+  [`${remoteOnlyMergedRepo} since:2024-01-01T00:00:00Z`],
+  "picked up origin/feature/remoteonly"
+);
+const c4Narrow = await tryLoad(
+  [`${remoteOnlyMergedRepo} since:2024-03-01T00:00:00Z`],
+  "picked up origin/feature/remoteonly"
+);
+
+check("C4 — pasting only the ref spelling still renders a merge-parsed landing, under its display name", () => {
+  const s = section(c4Wide, "--- landed 2024-02-02 branch: feature/remoteonly");
+  assert.ok(s, `expected the landing to render under the ref's display form; got: ${c4Wide}`);
+  assert.ok(hasSubject(s.body, "remoteonly: the work"), "the landing's commit is missing");
+});
+
+check("C4 — narrowing the window over the same branch moves it to the header-only form", () => {
+  assert.ok(
+    c4Narrow.includes("--- confirmed landed on main branch: feature/remoteonly (landed 2024-02-02)"),
+    `expected a dated header-only confirmed section; got: ${c4Narrow}`
+  );
+});
+
+/**
+ * C4's own text is explicit that the wide case gets "no header-only form, no
+ * silence" — not just that it renders in full. Without this, a regression
+ * that reported feature/remoteonly *both* ways (full render and a
+ * header-only section on top) would still pass the check above, since that
+ * only looks for the rendered section's presence.
+ */
+check("C4 — the ref-spelling landing gets no header-only section on top of its full render", () => {
+  assert.ok(
+    !c4Wide.includes("--- confirmed landed on main branch: feature/remoteonly"),
+    `feature/remoteonly rendered in full and also got a header-only section; got: ${c4Wide}`
+  );
+});
+
+const manyLandingDate = (i) =>
+  new Date(Date.UTC(2024, 4, 1, 12) + i * 86_400_000).toISOString().slice(0, 10);
+
+const c8Out = await tryLoad([`${many} since:2024-01-01 branches:*`]);
+
+check("C8 — a named landing the landing-side cap evicts is still reported header-only", () => {
+  for (let i = 1; i <= 5; i++) {
+    const date = manyLandingDate(i);
+    assert.ok(
+      c8Out.includes(`--- confirmed landed on main branch: feature/n${i} (landed ${date})`),
+      `feature/n${i} (evicted by the landing cap) was not reported header-only`
+    );
+  }
+  assert.equal(
+    landedSections(c8Out).length,
+    50,
+    "expected exactly the 50 most recent landings to render in full"
+  );
+});
+
+/**
+ * C9's own text: "the notice stays absent when nothing was truncated" — the
+ * header-only kind's over-cap notice must fire only on an actual truncation,
+ * mirroring the scan cap's own "stays silent" check ("the over-cap notice
+ * stays silent when every eligible branch was examined", above). C8's
+ * fixture is the cheapest shape that already computes this: only 5 landings
+ * (n1-n5) are header-only candidates there, nowhere near the 50 cap, so no
+ * "___ branches confirmed by name were listed" notice must appear.
+ */
+check("C9 — the header-only over-cap notice stays silent when nothing was truncated", () => {
+  assert.ok(
+    !c8Out.includes("branches confirmed by name were listed"),
+    `the header-only notice fired with only 5 candidates, well under the cap: ${c8Out.slice(c8Out.indexOf("(only"))}`
+  );
+});
+
+const c9Out = await tryLoad([`${many} branches:*`]);
+
+check("C9 — the header-only kind has its own cap, its own notice, and excludes what it truncates from paths 2/3 too", () => {
+  assert.equal(
+    landedSections(c9Out).length,
+    0,
+    "nothing should render in full — every landing here is dated 2024, outside the 7-day default"
+  );
+  const names = reportedBranchNames(c9Out);
+  for (let i = 1; i <= 5; i++) {
+    assert.ok(
+      !names.includes(`feature/n${i}`),
+      `feature/n${i} (truncated by the header-only cap) still appeared by name — it is an ancestor, so path 3 must not have re-confirmed it`
+    );
+  }
+  for (let i = 6; i <= 55; i++) {
+    assert.ok(names.includes(`feature/n${i}`), `feature/n${i} is missing from the header-only set`);
+  }
+  assert.equal(names.length, MAX_BRANCHES, `expected exactly ${MAX_BRANCHES} branch names reported`);
+  assert.ok(
+    c9Out.includes(`(only the ${MAX_BRANCHES} most recent of 55 branches confirmed by name were listed)`),
+    `expected the header-only over-cap notice; got: ${c9Out.slice(Math.max(0, c9Out.indexOf("(only the 50 most recent of 55")))}`
   );
 });
 

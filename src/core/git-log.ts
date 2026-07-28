@@ -42,9 +42,17 @@ import { t } from "../i18n";
  * confirms is reported nowhere at all — this file states what reached the
  * base, and a guess about the rest is worse than silence.
  *
- * See docs/specs/git-log-master-source.md for the landing traversal, and
- * docs/specs/git-log-landed-confirmation.md for the predicate above — in
- * particular why tree-content comparison is not one of its paths.
+ * A name confirmation is window-invariant: once a landing names a selected
+ * branch, narrowing the window never drops that branch from the output. If
+ * the landing itself renders (in the window, under the cap), the branch is
+ * reported in full; otherwise it still gets a header-only
+ * `--- confirmed landed on <base> branch: <name> (landed <date>)` line.
+ *
+ * See docs/specs/git-log-master-source.md for the landing traversal,
+ * docs/specs/git-log-landed-confirmation.md for the predicate above, and
+ * docs/specs/git-log-named-window-invariance.md for the window-invariance
+ * rule — in particular why tree-content comparison is not one of the
+ * predicate's paths.
  */
 
 export interface GitSpec {
@@ -580,13 +588,20 @@ async function runLog(args: string[], spec: GitSpec): Promise<string> {
   return escapeMarkerLines(result.stdout.trim());
 }
 
-/** One `--- landed` section per landing that has commits to show. */
+/**
+ * One `--- landed` section per landing that has commits to show. Also
+ * returns which landings actually got one — a named landing that the window,
+ * the cap, or an empty body dropped still needs to be told apart from a
+ * landing that never existed, and only the caller that also holds `judged`
+ * can do that (see the header-only derivation in loadGitLog).
+ */
 async function loadLandingSections(
   repoPath: string,
   spec: GitSpec,
   landings: Landing[]
-): Promise<string[]> {
+): Promise<{ sections: string[]; rendered: Landing[] }> {
   const sections: string[] = [];
+  const rendered: Landing[] = [];
   for (const landing of landings.slice(0, MAX_BRANCHES)) {
     // A merge's own commits, from every non-first parent: identical to
     // M^1..M^2 for an ordinary two-parent merge, and still correct for an
@@ -600,13 +615,14 @@ async function loadLandingSections(
     const body = await runLog(args, spec);
     if (!body) continue;
     sections.push(`${landingHeader(landing)}\n${body}`);
+    rendered.push(landing);
   }
   if (landings.length > MAX_BRANCHES) {
     sections.push(
       `(only the ${MAX_BRANCHES} most recent of ${landings.length} landings were rendered)`
     );
   }
-  return sections;
+  return { sections, rendered };
 }
 
 /**
@@ -769,6 +785,16 @@ async function isAncestor(
  * is the point: this file reports what reached the base, and a guess about the
  * rest is worse than silence.
  */
+/**
+ * The confirmed-section header, shared by paths 2/3 (no date — no single
+ * landing is identified) and the name-confirmed case in loadGitLog (a date,
+ * because path 1 or a merge-parse did identify exactly one).
+ */
+function confirmedHeader(base: BranchRef, name: string, date?: string): string {
+  const suffix = date ? ` (landed ${date})` : "";
+  return `--- confirmed landed on ${escapeMarkerLines(base.ref)} branch: ${escapeMarkerLines(name)}${suffix}`;
+}
+
 async function loadConfirmedSections(
   repoPath: string,
   spec: GitSpec,
@@ -813,7 +839,7 @@ async function loadConfirmedSections(
     // syntax rules already keep free of spaces and control characters, but
     // running them through keeps this file's stated rule true with no exception
     // a reader has to go verify.
-    const header = `--- confirmed landed on ${escapeMarkerLines(base.ref)} branch: ${escapeMarkerLines(branch.display)}`;
+    const header = confirmedHeader(base, branch.display);
     sections.push(`${header}${body ? `\n${body}` : ""}`);
   }
   if (eligible.length > MAX_BRANCHES) {
@@ -935,8 +961,25 @@ export async function loadGitLog(specs: string[], memoText = ""): Promise<string
       // landing is labelled `feature/x`. Without this the landing would be
       // named and then filtered straight back out.
       const assigned = new Set<string>();
+      // A selected branch's two spellings (display and ref) name the same
+      // branch, but `test` was built from whichever spelling did the
+      // selecting: `selectBranches` matches either, so a branch selected only
+      // by its ref form still yields a BranchRef carrying both. A
+      // merge-parsed name is always the branch's *display* form (git-log.ts
+      // doc comment on parseMergeBranchName), so pasting/globbing the ref
+      // form alone would otherwise select the branch while never matching
+      // the landing that names it. Folding both spellings of every selected
+      // branch into the match is what selectBranches already does one level
+      // up; this is the same rule applied where a landing's own name is
+      // matched.
+      const selectedSpellings = new Set<string>();
+      for (const b of selectedBranches) {
+        selectedSpellings.add(b.display.toLowerCase());
+        selectedSpellings.add(b.ref.toLowerCase());
+      }
       const match = (name: string | null) =>
-        name !== null && (test(name) || assigned.has(name.toLowerCase()));
+        name !== null &&
+        (test(name) || assigned.has(name.toLowerCase()) || selectedSpellings.has(name.toLowerCase()));
 
       // The rendered name is the ref's display form whenever a ref exists, so
       // pasting `origin/feature/x` and `feature/x` label the landing
@@ -1013,16 +1056,71 @@ export async function loadGitLog(specs: string[], memoText = ""): Promise<string
         ),
         ...judged.filter((l) => l.branch === null && (!namelessAllowed || namelessAllowed.has(l.hash))),
       ];
-      sections.push(...(await loadLandingSections(repoPath, spec, selected)));
-      const named = new Set(judged.flatMap((l) => (l.branch ? [l.branch.toLowerCase()] : [])));
+      const { sections: landingSections, rendered } = await loadLandingSections(
+        repoPath,
+        spec,
+        selected
+      );
+      sections.push(...landingSections);
+
+      // Every named landing this run selected, windowless — the predicate
+      // never sees the window, so a name is confirmed whether or not its
+      // landing rendered. This is also the exclusion set for paths 2/3: a
+      // branch path 1 or a merge-parse already named needs no second,
+      // differently-evidenced section, rendered or not.
+      //
+      // The base is excluded here the same way `names` (above) and `eligible`
+      // (loadConfirmedSections) already are: a merge subject can parse to the
+      // base's own name (`Merge pull request #5 from someuser/main`, an
+      // ordinary shape whenever a contributor's fork also defaults to
+      // `main`), and `branches:*` selects the base too — without this,
+      // `hit("main")` is true and the base would confirm itself by name,
+      // exactly what B12 forbids.
+      const namedSelected = judged.filter(
+        (l) => l.branch !== null && !namesBase(base, l.branch) && hit(l.branch)
+      );
+      // Branches already reported in full above need no header-only section.
+      const renderedNames = new Set(rendered.flatMap((l) => (l.branch ? [l.branch.toLowerCase()] : [])));
+      const seenNames = new Set<string>();
+      const nameConfirmedCandidates = namedSelected.filter((l) => {
+        if (!l.branch || renderedNames.has(l.branch.toLowerCase())) return false;
+        const key = l.branch.toLowerCase();
+        if (seenNames.has(key)) return false; // one landing per name; judged is newest-first
+        seenNames.add(key);
+        return true;
+      });
       sections.push(
-        ...(await loadConfirmedSections(repoPath, spec, base, selectedBranches, judged, named))
+        ...nameConfirmedCandidates
+          .slice(0, MAX_BRANCHES)
+          .map((l) => confirmedHeader(base, l.branch ?? "", l.date))
+      );
+      if (nameConfirmedCandidates.length > MAX_BRANCHES) {
+        sections.push(
+          `(only the ${MAX_BRANCHES} most recent of ${nameConfirmedCandidates.length} branches confirmed by name were listed)`
+        );
+      }
+
+      const namedAlready = new Set(
+        namedSelected.flatMap((l) => (l.branch ? [l.branch.toLowerCase()] : []))
+      );
+      sections.push(
+        ...(await loadConfirmedSections(
+          repoPath,
+          spec,
+          base,
+          selectedBranches,
+          judged,
+          namedAlready
+        ))
       );
     } else {
       since = spec.since ?? DEFAULT_SINCE;
-      sections.push(
-        ...(await loadLandingSections(repoPath, spec, await readLandings(since, spec.until)))
+      const { sections: landingSections } = await loadLandingSections(
+        repoPath,
+        spec,
+        await readLandings(since, spec.until)
       );
+      sections.push(...landingSections);
       note = "";
     }
 

@@ -44,7 +44,9 @@ Work that has LANDED — every section of the GIT LOG, which contains nothing
 else: `--- landed <date>` sections are the changes that reached the default
 branch, and `--- confirmed landed on <base> branch: <name>` sections name
 branches proven to have reached it (listed as commit subjects; a section with
-no lines means that branch's commits are among the `--- landed` sections). One
+no lines means that branch's commits are either among the `--- landed`
+sections or not in this log at all — a `(landed <date>)` suffix names the one
+landing that confirmed it, and its absence means only ancestry proved it). One
 `###` subsection per work stream (feature, fix, etc. — name them by what they
 achieve, not by branch or commit). Under each, tight bullets: what was done and
 what it enables. Merge commit chains ("fix, fix again, really fix") into their
