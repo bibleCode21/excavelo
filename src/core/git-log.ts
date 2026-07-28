@@ -1068,7 +1068,17 @@ export async function loadGitLog(specs: string[], memoText = ""): Promise<string
       // landing rendered. This is also the exclusion set for paths 2/3: a
       // branch path 1 or a merge-parse already named needs no second,
       // differently-evidenced section, rendered or not.
-      const namedSelected = judged.filter((l) => l.branch !== null && hit(l.branch));
+      //
+      // The base is excluded here the same way `names` (above) and `eligible`
+      // (loadConfirmedSections) already are: a merge subject can parse to the
+      // base's own name (`Merge pull request #5 from someuser/main`, an
+      // ordinary shape whenever a contributor's fork also defaults to
+      // `main`), and `branches:*` selects the base too — without this,
+      // `hit("main")` is true and the base would confirm itself by name,
+      // exactly what B12 forbids.
+      const namedSelected = judged.filter(
+        (l) => l.branch !== null && !namesBase(base, l.branch) && hit(l.branch)
+      );
       // Branches already reported in full above need no header-only section.
       const renderedNames = new Set(rendered.flatMap((l) => (l.branch ? [l.branch.toLowerCase()] : [])));
       const seenNames = new Set<string>();

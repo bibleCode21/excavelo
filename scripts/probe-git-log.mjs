@@ -396,6 +396,42 @@ function buildRemoteBaseFixture() {
 }
 
 /**
+ * Panel-found regression (git-log-named-window-invariance, full-panel
+ * correctness review): a merge subject can *parse* to the base's own name —
+ * `Merge pull request #N from someuser/main` is an ordinary shape whenever a
+ * contributor's fork also defaults to `main` — and `branches:*` selects the
+ * base too. `namedSelected`'s derivation had no `namesBase` guard, unlike
+ * every sibling derivation in the same function (`names`, `eligible`), so the
+ * base could confirm itself by name once its naming landing took the new
+ * header-only form (any window that doesn't cover this 2024 date, which the
+ * 7-day glob default never does). B12 already forbids confirming the base by
+ * any path; this fixture is the one shape `buildRemoteBaseFixture` (path 1,
+ * message-mention only) cannot reach, because it has no merge landing at all.
+ */
+function buildBaseNamedMergeFixture() {
+  const repo = path.join(tmp, "base-named-merge");
+  fs.mkdirSync(repo);
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  const git = makeGit(repo);
+  fs.writeFileSync(path.join(repo, "README"), "base\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", "base"], at("2024-01-01T12:00:00Z"));
+  const base = git(["rev-parse", "main"]).trim();
+  const tree = git(["rev-parse", "main^{tree}"]).trim();
+  const side = git(
+    ["commit-tree", tree, "-p", base, "-m", "some fork work"],
+    at("2024-03-01T11:00:00Z")
+  ).trim();
+  const merge = git(
+    ["commit-tree", tree, "-p", base, "-p", side, "-m", "Merge pull request #5 from someuser/main"],
+    at("2024-03-01T12:00:00Z")
+  ).trim();
+  git(["update-ref", "refs/heads/main", merge]);
+  git(["reset", "-q", "--hard", "main"]);
+  return repo;
+}
+
+/**
  * git-log-landed-confirmation's fixture. Every landing here is single-parent —
  * a squash/rebase repository, the shape the landed predicate exists for, where
  * no landing carries a branch name of its own. It plants one instance of each
@@ -2825,6 +2861,22 @@ check("and it is the predicate that raises it — no selection, no rejection", (
 console.log("named window invariance (C1-C9)");
 
 const c1Out = await tryLoad([`${repo} branches:feature/merged`]);
+
+const baseNamedMergeRepo = buildBaseNamedMergeFixture();
+// No window: the merge is dated 2024, so DEFAULT_SINCE excludes it from
+// rendering and only the new header-only path (this fix's target) is
+// reachable. A wide window instead renders it in full — a separate,
+// pre-existing gap in the render-side `hit()` filter that predates this
+// contract (§Non-goals: "the landed predicate itself" is out of scope) and
+// is tracked as a new deferred-followups item, not fixed here.
+const baseNamedMergeOut = await tryLoad([`${baseNamedMergeRepo} branches:*`]);
+
+check("B12 — a merge subject parsing to the base's own name does not confirm the base (panel regression)", () => {
+  assert.ok(
+    !baseNamedMergeOut.includes("branch: main"),
+    `the base confirmed itself via a merge-parsed name; got: ${baseNamedMergeOut}`
+  );
+});
 
 check("C1 — a merge-parsed name outside the default window is reported header-only, dated", () => {
   assert.ok(
