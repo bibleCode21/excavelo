@@ -913,6 +913,93 @@ function buildLongSubjectFixture() {
 }
 
 /**
+ * git-log-base-named-merge's pre-refactor safety net (refactor-scope site 1).
+ * `enumerateLandings`'s `base` parameter becomes a BranchRef, so the function
+ * itself starts choosing which of the base's two forms bounds the walk — a
+ * choice its single caller makes today, by passing `base.ref`.
+ *
+ * An unpulled clone is the one shape where the two forms disagree about
+ * history: `origin/main` carries a landing the local `main` has not fetched,
+ * so walking the display form silently drops it and reports less work than
+ * happened. Every existing fixture that has an `origin/main` at all points it
+ * at the local tip (buildRemoteBaseFixture, buildLongSubjectFixture), where
+ * both forms walk identical histories and nothing can tell them apart —
+ * verified by mutation: passing `base.display` instead leaves the whole suite
+ * green.
+ */
+function buildUnpulledCloneFixture() {
+  const repo = path.join(tmp, "unpulled-clone");
+  fs.mkdirSync(repo);
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  const git = makeGit(repo);
+  fs.writeFileSync(path.join(repo, "README"), "base\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", "base"], at("2024-01-01T12:00:00Z"));
+  const localTip = git(["rev-parse", "main"]).trim();
+
+  fs.writeFileSync(path.join(repo, "shipped.txt"), "x\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", "shipped while the clone was stale"], at("2024-02-01T12:00:00Z"));
+  git(["update-ref", "refs/remotes/origin/main", git(["rev-parse", "main"]).trim()]);
+  git(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+  // Rewind the local branch only: origin/main is now one landing ahead of it.
+  git(["update-ref", "refs/heads/main", localTip]);
+  git(["reset", "-q", "--hard", "main"]);
+  return repo;
+}
+
+/**
+ * git-log-base-named-merge's pre-refactor safety net (refactor-scope sites 1
+ * and 2) — the two `Landing.branch` write sites in one repository, in the two
+ * shapes that make their current relationship observable:
+ *
+ *   - A two-parent merge parsed as `feature/first` whose body also names
+ *     `feature/second`. Both are pasted, `feature/second` last, so path 1
+ *     would relabel this landing the moment it stopped honouring
+ *     `landing.branch === null` — the precedence rule that decides which of
+ *     the two writers wins, and the one the fix puts in play (a base-naming
+ *     merge becomes path-1-assignable precisely because write site 1 starts
+ *     yielding null for it).
+ *   - A single-parent commit whose subject still reads `Merge branch
+ *     'feature/flattened'`: a `git pull` merge that a later rebase flattened
+ *     keeps its subject and loses its second parent. Only enumerateLandings'
+ *     parent-count test keeps that subject from being read as a name.
+ *
+ * Both shapes are unpinned today — verified by mutation, each slip leaves the
+ * whole suite green.
+ */
+function buildWriteBoundaryFixture() {
+  const repo = path.join(tmp, "write-boundary");
+  fs.mkdirSync(repo);
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  const git = makeGit(repo);
+  fs.writeFileSync(path.join(repo, "README"), "base\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", "base"], at("2024-01-01T12:00:00Z"));
+
+  git(["checkout", "-q", "-b", "feature/first"]);
+  fs.writeFileSync(path.join(repo, "first.txt"), "x\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", "first: the work"], at("2024-01-15T12:00:00Z"));
+  git(["checkout", "-q", "main"]);
+  git(
+    [
+      "merge",
+      "--no-ff",
+      "-m",
+      "Merge branch 'feature/first'\n\nAlso wraps up feature/second",
+      "feature/first",
+    ],
+    at("2024-02-01T12:00:00Z")
+  );
+
+  fs.writeFileSync(path.join(repo, "flat.txt"), "x\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", "Merge branch 'feature/flattened'"], at("2024-03-01T12:00:00Z"));
+  return repo;
+}
+
+/**
  * loadGitLog returns one freeform string (I4). Section bodies carry blank
  * lines of their own (the pretty format opens with %n, --stat adds more), so
  * sections are cut on their header lines, never on blank lines.
@@ -3407,6 +3494,115 @@ check("C9 — the header-only kind has its own cap, its own notice, and excludes
     c9Out.includes(`(only the ${MAX_BRANCHES} most recent of 55 branches confirmed by name were listed)`),
     `expected the header-only over-cap notice; got: ${c9Out.slice(Math.max(0, c9Out.indexOf("(only the 50 most recent of 55")))}`
   );
+});
+
+/**
+ * Characterization (docs/specs/git-log-base-named-merge.md, pre-refactor
+ * safety net for the `Landing.branch` write-boundary refactor). These pin what
+ * the three sites in that contract's refactor-scope do *today*, in the shapes
+ * no existing check constrains — the measurable half of its Preservation
+ * contract, "for every input whose merge subjects do not parse to the base's
+ * name, output is byte-identical".
+ *
+ * Not E/M checks: those are the contract's own acceptance criteria for the new
+ * behavior and are authored with the fix. Each check below earned its place by
+ * mutation — its site was broken in the way the refactor could plausibly break
+ * it, and the existing suite stayed green.
+ */
+console.log("characterization: the Landing.branch write boundary (pre-refactor safety net)");
+
+const unpulledRepo = buildUnpulledCloneFixture();
+const unpulledOut = await tryLoad([`${unpulledRepo} since:2024-01-01T00:00:00Z`]);
+
+check("characterization — the landing walk follows the base's ref form, not its display form", () => {
+  assert.ok(!unpulledOut.startsWith("<threw:"), `expected output; got: ${unpulledOut}`);
+  const ahead = section(unpulledOut, "--- landed 2024-02-01 direct");
+  assert.ok(
+    ahead,
+    `the landing only origin/main carries is missing — the walk followed the base's display form and reported a stale clone's local history instead; got: ${unpulledOut}`
+  );
+  assert.ok(
+    hasSubject(ahead.body, "shipped while the clone was stale"),
+    "the ahead landing's own commit is missing from its section"
+  );
+  // Premise, so the assertion above cannot pass by the walk failing outright:
+  // the landing both forms share has to render too.
+  assert.ok(
+    section(unpulledOut, "--- landed 2024-01-01 direct"),
+    `the landing both forms share is missing, so nothing walked at all; got: ${unpulledOut}`
+  );
+});
+
+const writeBoundaryRepo = buildWriteBoundaryFixture();
+const writeBoundaryOut = await tryLoad(
+  [`${writeBoundaryRepo} since:2024-01-01T00:00:00Z`],
+  "picked up feature/first and feature/second"
+);
+
+check("characterization — a merge-parsed name is not overwritten by a later path-1 candidate", () => {
+  const s = section(writeBoundaryOut, "--- landed 2024-02-01 branch: feature/first");
+  assert.ok(s, `the merge-parsed name did not reach the header; got: ${writeBoundaryOut}`);
+  assert.ok(
+    hasSubject(s.body, "first: the work"),
+    "the landing's own commit is missing from its section"
+  );
+  assert.equal(
+    countOf(writeBoundaryOut, "branch: feature/second"),
+    0,
+    `path 1 relabelled a landing that already carried a merge-parsed name; got: ${writeBoundaryOut}`
+  );
+});
+
+check("characterization — a single-parent commit whose subject reads like a merge is not named by it", () => {
+  const s = section(writeBoundaryOut, "--- landed 2024-03-01 direct");
+  assert.ok(
+    s,
+    `the flattened pull-merge lost its 'direct' header — a name was parsed off a single-parent subject, and the selection then filtered the landing away entirely; got: ${writeBoundaryOut}`
+  );
+  assert.ok(
+    hasSubject(s.body, "Merge branch 'feature/flattened'"),
+    "the flattened commit's own record is missing from its section"
+  );
+  assert.equal(
+    countOf(writeBoundaryOut, "branch: feature/flattened"),
+    0,
+    `a single-parent subject was read as a branch name; got: ${writeBoundaryOut}`
+  );
+});
+
+/**
+ * The rendered-name half of B11's fixture, which B11 itself leaves unasserted.
+ * Measured now, before the refactor touches this assignment: the path-1 name
+ * reaches the header in the ref's `display` form, which is what §Spec's
+ * rendered-name rule calls for. (B11's comment records the ref spelling
+ * reaching the header instead, and an escalation over it; that no longer
+ * reproduces.) Dropping `displayOf` from the path-1 assignment leaves every
+ * existing check green — B11's counts do not move, and its
+ * `includes("feature/dual")` filter matches `origin/feature/dual` just as
+ * readily.
+ *
+ * Both of B11's paste orders are asserted, but they do not differ here and are
+ * not expected to: `mentionsName`'s token bound rules the display form out of
+ * this landing's message (`origin/feature/dual` is one ref-charset token, so
+ * the `feature/dual` inside it is not a match), leaving the ref spelling as
+ * the only candidate path 1 can act on either way. The loop pins that
+ * coincidence rather than assuming it.
+ */
+check("characterization — a path-1 name renders in the ref's display form, not the pasted ref spelling", () => {
+  for (const [label, out] of [
+    ["display form first", dualDisplayFirst],
+    ["ref form first", dualRefFirst],
+  ]) {
+    assert.ok(
+      section(out, "--- landed 2024-01-03 branch: feature/dual"),
+      `${label}: expected the path-1 name folded to the ref's display form; got: ${out}`
+    );
+    assert.equal(
+      countOf(out, "branch: origin/feature/dual"),
+      0,
+      `${label}: the pasted ref spelling reached the header instead of the ref's display form; got: ${out}`
+    );
+  }
 });
 
 fs.rmSync(tmp, { recursive: true, force: true });
