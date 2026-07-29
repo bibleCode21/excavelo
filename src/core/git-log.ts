@@ -1076,11 +1076,16 @@ export async function loadGitLog(specs: string[], memoText = ""): Promise<string
       for (const name of names) {
         const landing = namedBy.get(name);
         if (landing && landing.branch === null) {
-          // landingName rejects nothing here today — `names` already excludes the
-          // base — but this is a write site, and the invariant is the writers' to
-          // hold rather than a property inherited from how `names` was built.
-          // displayOf stays inside this guard: it is a linear scan of
-          // selectedBranches, and in glob mode `names` is that same set.
+          // Do not delete: this rejects a real input. `names` excludes the base
+          // by *candidate spelling*, but displayOf folds a candidate onto its
+          // selected branch's display form — with base `origin/main` and a
+          // third remote whose `upstream/main` is the newest ref displaying as
+          // `main`, a pasted `upstream/main` clears namesBase and comes back out
+          // of displayOf as the base's own name. Nothing downstream catches it:
+          // namedSelected's read-side guard is gone, because this write site is
+          // what the reads now trust. displayOf stays inside this guard rather
+          // than above it because the loop walks selectedBranches in glob mode —
+          // hoisting the pair makes it quadratic in the branch count.
           const named = landingName(base, displayOf(name));
           if (named) {
             landing.branch = named;
