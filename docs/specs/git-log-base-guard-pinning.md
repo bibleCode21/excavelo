@@ -1,6 +1,7 @@
 ---
-status: draft
+status: confirmed
 ceremony: standard
+approved-commit: ddd71b41cbeec6d4c496514c184e3e9ce9fdce80
 ---
 # `[!git]`: the base-naming rule's two unpinned edges — a live guard no test holds, and a glob that now takes the callout down
 
