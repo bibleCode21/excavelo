@@ -1,6 +1,7 @@
 ---
-status: draft
+status: confirmed
 ceremony: standard
+approved-commit: 20643b0bc544db93217a9735e16746da84562783
 ---
 # `[!git]`: a landing never carries the base's own name, whatever named it
 
