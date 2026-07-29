@@ -360,6 +360,23 @@ function namesBase(base: BranchRef, name: string): boolean {
 }
 
 /**
+ * The only way a Landing gets a name: a candidate that names the base is not a
+ * usable name, and yields null. **Enforced here and trusted at every read** —
+ * both write sites (enumerateLandings' merge-parse, loadGitLog's path-1
+ * assignment) call this, so no consumer of `Landing.branch` re-checks it. Do
+ * not re-add a namesBase guard at a read; add the write site here instead.
+ *
+ * The rule lived on the reads before, and twice a new read was written without
+ * it — the base then named a branch after itself, which is what makes this a
+ * boundary rather than a filter. Nothing but convention keeps a third writer
+ * from bypassing it (the field is mutable and this file has no class to hide
+ * it behind); that ceiling is why the rule is stated on `Landing.branch` too.
+ */
+function landingName(base: BranchRef, candidate: string | null): string | null {
+  return candidate && !namesBase(base, candidate) ? candidate : null;
+}
+
+/**
  * The repo's default branch (origin/HEAD or a main/master fallback), if any.
  * This is what work has to land on to count as done; without it there is
  * nothing to source from and the caller falls back to a plain HEAD log.
@@ -403,6 +420,9 @@ async function resolveBaseRef(repoPath: string): Promise<BranchRef | null> {
  * by, from either of two sources: parsed off a merge subject, or assigned by
  * the landed predicate when the landing's message names a selected branch. The
  * second case is what gives a single-parent squash landing a name at all.
+ *
+ * `branch` is never the base's own name, in either of its forms — both writers
+ * go through landingName, and readers rely on that rather than re-checking.
  */
 interface Landing {
   hash: string;
@@ -465,7 +485,7 @@ function parseMergeBranchName(subject: string): string | null {
  */
 async function enumerateLandings(
   repoPath: string,
-  base: string,
+  base: BranchRef,
   since: string | null,
   until: string | null
 ): Promise<Landing[]> {
@@ -474,7 +494,10 @@ async function enumerateLandings(
     repoPath,
     "log",
     "--first-parent",
-    base,
+    // The walk follows `ref`, never `display`: on an unpulled clone the two
+    // name different histories, and the display form would drop the landings
+    // the remote already carries.
+    base.ref,
     ...(since ? [`--since=${since}`] : []),
     ...(until ? [`--until=${until}`] : []),
     "--date=short",
@@ -505,7 +528,10 @@ async function enumerateLandings(
       date: date ?? "",
       subject: subjectText,
       message: body ? `${subjectText}\n${body}` : subjectText,
-      branch: parentList.length >= 2 ? parseMergeBranchName(subjectText) : null,
+      // A merge subject can parse to the base's own name — `Merge pull request
+      // #5 from someuser/main` whenever a contributor's fork also defaults to
+      // `main` — and that is not a usable name for a landing.
+      branch: parentList.length >= 2 ? landingName(base, parseMergeBranchName(subjectText)) : null,
     });
   }
   return out;
@@ -946,7 +972,7 @@ export async function loadGitLog(specs: string[], memoText = ""): Promise<string
 
     const readLandings = async (from: string | null, to: string | null): Promise<Landing[]> => {
       try {
-        return await enumerateLandings(repoPath, base.ref, from, to);
+        return await enumerateLandings(repoPath, base, from, to);
       } catch (e) {
         throw new Error(t("git.failed", { path: spec.path, error: (e as Error).message }));
       }
@@ -1049,9 +1075,13 @@ export async function loadGitLog(specs: string[], memoText = ""): Promise<string
       const namedBy = landingsNaming(judged, names);
       for (const name of names) {
         const landing = namedBy.get(name);
-        if (landing && landing.branch === null) {
-          landing.branch = displayOf(name);
-          assigned.add(landing.branch.toLowerCase());
+        // landingName rejects nothing here today — `names` already excludes the
+        // base — but this is a write site, and the invariant is the writers' to
+        // hold rather than a property inherited from how `names` was built.
+        const named = landingName(base, displayOf(name));
+        if (landing && landing.branch === null && named) {
+          landing.branch = named;
+          assigned.add(named.toLowerCase());
         }
       }
 
@@ -1115,16 +1145,11 @@ export async function loadGitLog(specs: string[], memoText = ""): Promise<string
       // branch path 1 or a merge-parse already named needs no second,
       // differently-evidenced section, rendered or not.
       //
-      // The base is excluded here the same way `names` (above) and `eligible`
-      // (loadConfirmedSections) already are: a merge subject can parse to the
-      // base's own name (`Merge pull request #5 from someuser/main`, an
-      // ordinary shape whenever a contributor's fork also defaults to
-      // `main`), and `branches:*` selects the base too — without this,
-      // `hit("main")` is true and the base would confirm itself by name,
-      // exactly what B12 forbids.
-      const namedSelected = judged.filter(
-        (l) => l.branch !== null && !namesBase(base, l.branch) && hit(l.branch)
-      );
+      // No base exclusion here, deliberately: `Landing.branch` is never the
+      // base's own name, enforced at both write sites by landingName. A guard
+      // here would be a second, weaker copy of that rule — which is how it came
+      // to be missing from a sibling derivation in the first place.
+      const namedSelected = judged.filter((l) => l.branch !== null && hit(l.branch));
       // Branches already reported in full above need no header-only section.
       const renderedNames = new Set(rendered.flatMap((l) => (l.branch ? [l.branch.toLowerCase()] : [])));
       const seenNames = new Set<string>();

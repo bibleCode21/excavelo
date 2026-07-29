@@ -105,7 +105,8 @@ where work counts as done. Each entry on its first-parent history is one
 
 ```
 --- landed <YYYY-MM-DD> branch: <name>   a landing whose branch is known, with its commits
---- landed <YYYY-MM-DD> merge: <subject> a merge whose subject names no branch
+--- landed <YYYY-MM-DD> merge: <subject> a merge whose subject names no branch, or names
+                                         only the default branch itself (never a name)
 --- landed <YYYY-MM-DD> direct           a single commit: direct, squashed, or rebased
 --- confirmed landed on <base> branch: <name>
                                          a selected branch proven to have reached the
