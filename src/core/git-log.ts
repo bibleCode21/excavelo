@@ -1075,13 +1075,17 @@ export async function loadGitLog(specs: string[], memoText = ""): Promise<string
       const namedBy = landingsNaming(judged, names);
       for (const name of names) {
         const landing = namedBy.get(name);
-        // landingName rejects nothing here today — `names` already excludes the
-        // base — but this is a write site, and the invariant is the writers' to
-        // hold rather than a property inherited from how `names` was built.
-        const named = landingName(base, displayOf(name));
-        if (landing && landing.branch === null && named) {
-          landing.branch = named;
-          assigned.add(named.toLowerCase());
+        if (landing && landing.branch === null) {
+          // landingName rejects nothing here today — `names` already excludes the
+          // base — but this is a write site, and the invariant is the writers' to
+          // hold rather than a property inherited from how `names` was built.
+          // displayOf stays inside this guard: it is a linear scan of
+          // selectedBranches, and in glob mode `names` is that same set.
+          const named = landingName(base, displayOf(name));
+          if (named) {
+            landing.branch = named;
+            assigned.add(named.toLowerCase());
+          }
         }
       }
 
