@@ -407,9 +407,25 @@ function buildRemoteBaseFixture() {
  * 7-day glob default never does). B12 already forbids confirming the base by
  * any path; this fixture is the one shape `buildRemoteBaseFixture` (path 1,
  * message-mention only) cannot reach, because it has no merge landing at all.
+ *
+ * git-log-base-named-merge grew it into the two arms E1-E7 need. The default
+ * arm carries **two** base-naming merges, because one cannot serve both jobs:
+ * once a base-naming merge yields no name it becomes path-1-assignable, so the
+ * merge whose body names `feature/x` (E4) renders under that name, and the
+ * merge E7 needs to see as a nameless `merge:` section has to be a different
+ * one — hence a bodyless first merge and a second that names the branch.
+ *
+ * `{ unpulledRemote: true }` builds the other arm: a base that resolves to
+ * `origin/main` whose tip is **ahead of the local `main`**. That one shape
+ * carries both of E3's spellings (a merge parsed as `main`, the base's display
+ * form, and one parsed as `origin/main`, its ref form) and E6's precondition —
+ * `enumerateBranches` dedups by display keeping the newer tip, so the base is
+ * listed as `origin/main` and a memo carrying that spelling selects it, which
+ * is the only way a pasted candidate reaches the base at all (`main` has no
+ * slash, so `branchCandidates` never yields it).
  */
-function buildBaseNamedMergeFixture() {
-  const repo = path.join(tmp, "base-named-merge");
+function buildBaseNamedMergeFixture({ unpulledRemote = false } = {}) {
+  const repo = path.join(tmp, unpulledRemote ? "base-named-merge-remote" : "base-named-merge");
   fs.mkdirSync(repo);
   execFileSync("git", ["init", "-q", "-b", "main", repo]);
   const git = makeGit(repo);
@@ -426,7 +442,109 @@ function buildBaseNamedMergeFixture() {
     ["commit-tree", tree, "-p", base, "-p", side, "-m", "Merge pull request #5 from someuser/main"],
     at("2024-03-01T12:00:00Z")
   ).trim();
-  git(["update-ref", "refs/heads/main", merge]);
+
+  if (unpulledRemote) {
+    // The base's *ref* spelling: `Merge branch '<x>'` captures the quoted name
+    // whole, so this parses to `origin/main` where the merge above parses to
+    // `main`. Both name the base here, by different halves of namesBase.
+    const refSide = git(
+      ["commit-tree", tree, "-p", merge, "-m", "more fork work"],
+      at("2024-05-01T11:00:00Z")
+    ).trim();
+    const refMerge = git(
+      ["commit-tree", tree, "-p", merge, "-p", refSide, "-m", "Merge branch 'origin/main'"],
+      at("2024-05-01T12:00:00Z")
+    ).trim();
+    git(["update-ref", "refs/remotes/origin/main", refMerge]);
+    git(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+    // The local branch stays at the first commit: this clone has not fetched
+    // either merge, which is what puts the remote tip ahead of it.
+    return repo;
+  }
+
+  // A second base-naming merge, whose body names a branch the selection can
+  // reach. Its side commit is `feature/x`'s tip, so a `feature/*` glob has
+  // something to select that is not the base.
+  const namingSide = git(
+    ["commit-tree", tree, "-p", merge, "-m", "second fork work"],
+    at("2024-04-01T11:00:00Z")
+  ).trim();
+  const namingMerge = git(
+    [
+      "commit-tree",
+      tree,
+      "-p",
+      merge,
+      "-p",
+      namingSide,
+      "-m",
+      "Merge pull request #6 from someuser/main\n\nWraps up feature/x",
+    ],
+    at("2024-04-01T12:00:00Z")
+  ).trim();
+  git(["update-ref", "refs/heads/feature/x", namingSide]);
+  git(["update-ref", "refs/heads/main", namingMerge]);
+  git(["reset", "-q", "--hard", "main"]);
+  return repo;
+}
+
+/**
+ * The cap half of "nameless in full". §Spec says a landing whose only name was
+ * the base's takes the nameless **cap priority** as well as the nameless
+ * window; E1-E7 measure only the window. `selected` places every matched named
+ * landing ahead of every nameless one so the cap cannot evict a selected
+ * branch's landing (A16) — and under `branches:*`, which selects the base too,
+ * a base-naming merge used to sit inside that protected arm. It now sits
+ * behind all of it, which is a third way its membership moves.
+ *
+ * `namedCount` is the only variable between the two repositories this builds,
+ * so one header constant serves both and nothing but the size of the crowd
+ * differs. The base-naming merge is dated past every named merge at the
+ * current cap, which makes it the newest landing in either repository — the
+ * sharpest form of the claim, though not what the eviction turns on: arm 2 is
+ * emptied whenever arm 1 alone fills the cap, whatever the dates. Built with
+ * commit-tree, same as buildManyLandingsFixture.
+ */
+function buildBaseNamedMergeCrowdedFixture(namedCount) {
+  const repo = path.join(tmp, `base-named-merge-crowded-${namedCount}`);
+  fs.mkdirSync(repo);
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  const git = makeGit(repo);
+  fs.writeFileSync(path.join(repo, "README"), "base\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", "base"], at("2024-01-01T12:00:00Z"));
+
+  const tree = git(["rev-parse", "main^{tree}"]).trim();
+  let head = git(["rev-parse", "main"]).trim();
+  for (let i = 1; i <= namedCount; i++) {
+    const env = at(new Date(Date.UTC(2024, 4, 1, 12) + i * 86_400_000).toISOString());
+    const side = git(["commit-tree", tree, "-p", head, "-m", `work on feature/n${i}`], env).trim();
+    head = git(
+      ["commit-tree", tree, "-p", head, "-p", side, "-m", `Merge branch 'feature/n${i}'`],
+      env
+    ).trim();
+    git(["branch", `feature/n${i}`, side]);
+  }
+
+  // Newest of all, and the only landing here `landingName` leaves nameless.
+  const forkSide = git(
+    ["commit-tree", tree, "-p", head, "-m", "some fork work"],
+    at("2024-09-01T11:00:00Z")
+  ).trim();
+  const forkMerge = git(
+    [
+      "commit-tree",
+      tree,
+      "-p",
+      head,
+      "-p",
+      forkSide,
+      "-m",
+      "Merge pull request #5 from someuser/main",
+    ],
+    at("2024-09-01T12:00:00Z")
+  ).trim();
+  git(["update-ref", "refs/heads/main", forkMerge]);
   git(["reset", "-q", "--hard", "main"]);
   return repo;
 }
@@ -909,6 +1027,93 @@ function buildLongSubjectFixture() {
   git(["update-ref", "refs/remotes/origin/main", mainTip]);
   git(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
 
+  return repo;
+}
+
+/**
+ * git-log-base-named-merge's pre-refactor safety net (refactor-scope site 1).
+ * `enumerateLandings`'s `base` parameter becomes a BranchRef, so the function
+ * itself starts choosing which of the base's two forms bounds the walk — a
+ * choice its single caller makes today, by passing `base.ref`.
+ *
+ * An unpulled clone is the one shape where the two forms disagree about
+ * history: `origin/main` carries a landing the local `main` has not fetched,
+ * so walking the display form silently drops it and reports less work than
+ * happened. Every existing fixture that has an `origin/main` at all points it
+ * at the local tip (buildRemoteBaseFixture, buildLongSubjectFixture), where
+ * both forms walk identical histories and nothing can tell them apart —
+ * verified by mutation: passing `base.display` instead leaves the whole suite
+ * green.
+ */
+function buildUnpulledCloneFixture() {
+  const repo = path.join(tmp, "unpulled-clone");
+  fs.mkdirSync(repo);
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  const git = makeGit(repo);
+  fs.writeFileSync(path.join(repo, "README"), "base\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", "base"], at("2024-01-01T12:00:00Z"));
+  const localTip = git(["rev-parse", "main"]).trim();
+
+  fs.writeFileSync(path.join(repo, "shipped.txt"), "x\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", "shipped while the clone was stale"], at("2024-02-01T12:00:00Z"));
+  git(["update-ref", "refs/remotes/origin/main", git(["rev-parse", "main"]).trim()]);
+  git(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+  // Rewind the local branch only: origin/main is now one landing ahead of it.
+  git(["update-ref", "refs/heads/main", localTip]);
+  git(["reset", "-q", "--hard", "main"]);
+  return repo;
+}
+
+/**
+ * git-log-base-named-merge's pre-refactor safety net (refactor-scope sites 1
+ * and 2) — the two `Landing.branch` write sites in one repository, in the two
+ * shapes that make their current relationship observable:
+ *
+ *   - A two-parent merge parsed as `feature/first` whose body also names
+ *     `feature/second`. Both are pasted, `feature/second` last, so path 1
+ *     would relabel this landing the moment it stopped honouring
+ *     `landing.branch === null` — the precedence rule that decides which of
+ *     the two writers wins, and the one the fix puts in play (a base-naming
+ *     merge becomes path-1-assignable precisely because write site 1 starts
+ *     yielding null for it).
+ *   - A single-parent commit whose subject still reads `Merge branch
+ *     'feature/flattened'`: a `git pull` merge that a later rebase flattened
+ *     keeps its subject and loses its second parent. Only enumerateLandings'
+ *     parent-count test keeps that subject from being read as a name.
+ *
+ * Both shapes are unpinned today — verified by mutation, each slip leaves the
+ * whole suite green.
+ */
+function buildWriteBoundaryFixture() {
+  const repo = path.join(tmp, "write-boundary");
+  fs.mkdirSync(repo);
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  const git = makeGit(repo);
+  fs.writeFileSync(path.join(repo, "README"), "base\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", "base"], at("2024-01-01T12:00:00Z"));
+
+  git(["checkout", "-q", "-b", "feature/first"]);
+  fs.writeFileSync(path.join(repo, "first.txt"), "x\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", "first: the work"], at("2024-01-15T12:00:00Z"));
+  git(["checkout", "-q", "main"]);
+  git(
+    [
+      "merge",
+      "--no-ff",
+      "-m",
+      "Merge branch 'feature/first'\n\nAlso wraps up feature/second",
+      "feature/first",
+    ],
+    at("2024-02-01T12:00:00Z")
+  );
+
+  fs.writeFileSync(path.join(repo, "flat.txt"), "x\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", "Merge branch 'feature/flattened'"], at("2024-03-01T12:00:00Z"));
   return repo;
 }
 
@@ -3231,12 +3436,12 @@ console.log("named window invariance (C1-C9)");
 const c1Out = await tryLoad([`${repo} branches:feature/merged`]);
 
 const baseNamedMergeRepo = buildBaseNamedMergeFixture();
-// No window: the merge is dated 2024, so DEFAULT_SINCE excludes it from
-// rendering and only the new header-only path (this fix's target) is
-// reachable. A wide window instead renders it in full — a separate,
-// pre-existing gap in the render-side `hit()` filter that predates this
-// contract (§Non-goals: "the landed predicate itself" is out of scope) and
-// is tracked as a new deferred-followups item, not fixed here.
+// No window: the merges are dated 2024, so DEFAULT_SINCE excludes them from
+// rendering and only the header-only path this contract's fix targets is
+// reachable. The wide-window shape — where the merge renders in full and used
+// to carry the base's own name in its header — was a pre-existing gap in the
+// render side, deferred out of this contract and closed by
+// git-log-base-named-merge; E1 is where it is pinned now.
 const baseNamedMergeOut = await tryLoad([`${baseNamedMergeRepo} branches:*`]);
 
 check("B12 — a merge subject parsing to the base's own name does not confirm the base (panel regression)", () => {
@@ -3406,6 +3611,419 @@ check("C9 — the header-only kind has its own cap, its own notice, and excludes
   assert.ok(
     c9Out.includes(`(only the ${MAX_BRANCHES} most recent of 55 branches confirmed by name were listed)`),
     `expected the header-only over-cap notice; got: ${c9Out.slice(Math.max(0, c9Out.indexOf("(only the 50 most recent of 55")))}`
+  );
+});
+
+/**
+ * Characterization (docs/specs/git-log-base-named-merge.md, pre-refactor
+ * safety net for the `Landing.branch` write-boundary refactor). These pin what
+ * the three sites in that contract's refactor-scope do *today*, in the shapes
+ * no existing check constrains — the measurable half of its Preservation
+ * contract, "for every input whose merge subjects do not parse to the base's
+ * name, output is byte-identical".
+ *
+ * Not E/M checks: those are the contract's own acceptance criteria for the new
+ * behavior and are authored with the fix. Each check below earned its place by
+ * mutation — its site was broken in the way the refactor could plausibly break
+ * it, and the existing suite stayed green.
+ */
+console.log("characterization: the Landing.branch write boundary (pre-refactor safety net)");
+
+const unpulledRepo = buildUnpulledCloneFixture();
+const unpulledOut = await tryLoad([`${unpulledRepo} since:2024-01-01T00:00:00Z`]);
+
+check("characterization — the landing walk follows the base's ref form, not its display form", () => {
+  assert.ok(!unpulledOut.startsWith("<threw:"), `expected output; got: ${unpulledOut}`);
+  const ahead = section(unpulledOut, "--- landed 2024-02-01 direct");
+  assert.ok(
+    ahead,
+    `the landing only origin/main carries is missing — the walk followed the base's display form and reported a stale clone's local history instead; got: ${unpulledOut}`
+  );
+  assert.ok(
+    hasSubject(ahead.body, "shipped while the clone was stale"),
+    "the ahead landing's own commit is missing from its section"
+  );
+  // Premise, so the assertion above cannot pass by the walk failing outright:
+  // the landing both forms share has to render too.
+  assert.ok(
+    section(unpulledOut, "--- landed 2024-01-01 direct"),
+    `the landing both forms share is missing, so nothing walked at all; got: ${unpulledOut}`
+  );
+});
+
+const writeBoundaryRepo = buildWriteBoundaryFixture();
+const writeBoundaryOut = await tryLoad(
+  [`${writeBoundaryRepo} since:2024-01-01T00:00:00Z`],
+  "picked up feature/first and feature/second"
+);
+
+check("characterization — a merge-parsed name is not overwritten by a later path-1 candidate", () => {
+  const s = section(writeBoundaryOut, "--- landed 2024-02-01 branch: feature/first");
+  assert.ok(s, `the merge-parsed name did not reach the header; got: ${writeBoundaryOut}`);
+  assert.ok(
+    hasSubject(s.body, "first: the work"),
+    "the landing's own commit is missing from its section"
+  );
+  assert.equal(
+    countOf(writeBoundaryOut, "branch: feature/second"),
+    0,
+    `path 1 relabelled a landing that already carried a merge-parsed name; got: ${writeBoundaryOut}`
+  );
+});
+
+check("characterization — a single-parent commit whose subject reads like a merge is not named by it", () => {
+  const s = section(writeBoundaryOut, "--- landed 2024-03-01 direct");
+  assert.ok(
+    s,
+    `the flattened pull-merge lost its 'direct' header — a name was parsed off a single-parent subject, and the selection then filtered the landing away entirely; got: ${writeBoundaryOut}`
+  );
+  assert.ok(
+    hasSubject(s.body, "Merge branch 'feature/flattened'"),
+    "the flattened commit's own record is missing from its section"
+  );
+  assert.equal(
+    countOf(writeBoundaryOut, "branch: feature/flattened"),
+    0,
+    `a single-parent subject was read as a branch name; got: ${writeBoundaryOut}`
+  );
+});
+
+/**
+ * The rendered-name half of B11's fixture, which B11 itself leaves unasserted.
+ * Measured now, before the refactor touches this assignment: the path-1 name
+ * reaches the header in the ref's `display` form, which is what §Spec's
+ * rendered-name rule calls for. (B11's comment records the ref spelling
+ * reaching the header instead, and an escalation over it; that no longer
+ * reproduces.) Dropping `displayOf` from the path-1 assignment leaves every
+ * existing check green — B11's counts do not move, and its
+ * `includes("feature/dual")` filter matches `origin/feature/dual` just as
+ * readily.
+ *
+ * Both of B11's paste orders are asserted, but they do not differ here and are
+ * not expected to: `mentionsName`'s token bound rules the display form out of
+ * this landing's message (`origin/feature/dual` is one ref-charset token, so
+ * the `feature/dual` inside it is not a match), leaving the ref spelling as
+ * the only candidate path 1 can act on either way. The loop pins that
+ * coincidence rather than assuming it.
+ */
+check("characterization — a path-1 name renders in the ref's display form, not the pasted ref spelling", () => {
+  for (const [label, out] of [
+    ["display form first", dualDisplayFirst],
+    ["ref form first", dualRefFirst],
+  ]) {
+    assert.ok(
+      section(out, "--- landed 2024-01-03 branch: feature/dual"),
+      `${label}: expected the path-1 name folded to the ref's display form; got: ${out}`
+    );
+    assert.equal(
+      countOf(out, "branch: origin/feature/dual"),
+      0,
+      `${label}: the pasted ref spelling reached the header instead of the ref's display form; got: ${out}`
+    );
+  }
+});
+
+/**
+ * docs/specs/git-log-base-named-merge.md (deferred-followups item 13). A merge
+ * subject can parse to the base's own name, and until this contract that name
+ * went straight into `Landing.branch` — so every render path reported the base
+ * as a branch that landed on itself. The rule now lives at the two write sites
+ * (`landingName`), which is why no check below reaches for a guard on a read.
+ *
+ * A landing whose only name was unusable is nameless in full, window and cap
+ * priority included, so the fix moves membership in two directions. E6 pins
+ * the one where a landing disappears and E7 the one where it appears; neither
+ * is a side effect discovered afterwards.
+ */
+console.log("base-named merge parses (E1-E7)");
+
+const WIDE = "since:2024-01-01T00:00:00Z";
+const FORK_MERGE_HEADER = "--- landed 2024-03-01 merge: Merge pull request #5 from someuser/main";
+
+const e1Out = await tryLoad([`${baseNamedMergeRepo} branches:* ${WIDE}`]);
+const e2Out = await tryLoad([`${baseNamedMergeRepo} ${WIDE}`]);
+// One spec serves E4 and E7: `feature/*` matches the branch the second merge's
+// body names and never the base, which is exactly both criteria's premise.
+const narrowGlobOut = await tryLoad([`${baseNamedMergeRepo} branches:feature/* ${WIDE}`]);
+
+const remoteBaseNamedRepo = buildBaseNamedMergeFixture({ unpulledRemote: true });
+const e3Out = await tryLoad([`${remoteBaseNamedRepo} branches:* ${WIDE}`]);
+// `origin/main` is the base's ref spelling *and* a slash-bearing token, so it
+// is the one candidate a memo can carry that selects the base at all.
+const UNPULLED_MEMO = "picked up origin/main today";
+const e6NoWindow = await tryLoad([`${remoteBaseNamedRepo}`], UNPULLED_MEMO);
+const e6Windowed = await tryLoad([`${remoteBaseNamedRepo} ${WIDE}`], UNPULLED_MEMO);
+
+check("E1 — a merge parsing to the base's name renders as a nameless merge section (glob, wide window)", () => {
+  assert.equal(
+    countOf(e1Out, "branch: main"),
+    0,
+    `the base was named as a branch; got: ${e1Out}`
+  );
+  const s = section(e1Out, FORK_MERGE_HEADER);
+  assert.ok(s, `the landing lost its section instead of losing its name; got: ${e1Out}`);
+  assert.ok(hasSubject(s.body, "some fork work"), "the landing rendered without its commits");
+});
+
+check("E2 — the same with no selection at all: the plain path, which has no hit filter to guard", () => {
+  assert.equal(countOf(e2Out, "branch: main"), 0, `the base was named as a branch; got: ${e2Out}`);
+  const s = section(e2Out, FORK_MERGE_HEADER);
+  assert.ok(s, `the landing lost its section instead of losing its name; got: ${e2Out}`);
+  assert.ok(hasSubject(s.body, "some fork work"), "the landing rendered without its commits");
+  // No selection means no path 1, so the second merge is nameless here too —
+  // the arm that proves this check is not passing through a selection filter.
+  assert.ok(
+    section(e2Out, "--- landed 2024-04-01 merge: Merge pull request #6 from someuser/main"),
+    `the second base-naming merge is missing; got: ${e2Out}`
+  );
+});
+
+check("E3 — both of the base's spellings are rejected, display form and ref form", () => {
+  assert.equal(countOf(e3Out, "branch: main"), 0, `the display form named the base; got: ${e3Out}`);
+  assert.equal(
+    countOf(e3Out, "branch: origin/main"),
+    0,
+    `the ref form named the base; got: ${e3Out}`
+  );
+  // Positively asserted, or a window that renders nothing would pass the two
+  // counts above for the wrong reason.
+  const display = section(e3Out, FORK_MERGE_HEADER);
+  assert.ok(display, `the display-form merge did not render; got: ${e3Out}`);
+  assert.ok(hasSubject(display.body, "some fork work"), "the display-form landing lost its commits");
+  const ref = section(e3Out, "--- landed 2024-05-01 merge: Merge branch 'origin/main'");
+  assert.ok(ref, `the ref-form merge did not render; got: ${e3Out}`);
+  assert.ok(hasSubject(ref.body, "more fork work"), "the ref-form landing lost its commits");
+});
+
+check("E4 — a base-naming merge whose body names a selected branch is reported under that branch", () => {
+  const s = section(narrowGlobOut, "--- landed 2024-04-01 branch: feature/x");
+  assert.ok(
+    s,
+    `path 1 did not name the landing its merge-parse no longer claims; got: ${narrowGlobOut}`
+  );
+  assert.ok(hasSubject(s.body, "second fork work"), "the named landing rendered without its commits");
+  assert.equal(
+    countOf(narrowGlobOut, "--- confirmed landed on"),
+    0,
+    `feature/x took a paths-2/3 section on top of its own landing; got: ${narrowGlobOut}`
+  );
+});
+
+check("E5 — preservation: a merge subject naming anything but the base still yields that name", () => {
+  // The mutation anchor for `landingName` — a helper that always returned null
+  // would take this with it. E4 is the same anchor on the other write site.
+  assert.ok(
+    section(noSelection, MERGED_HEADER),
+    `an ordinary merge lost its parsed name; got: ${noSelection}`
+  );
+});
+
+check("E6 — the disappearance direction: a nameless landing takes the nameless window", () => {
+  // Premise: the memo's `origin/main` really is what selected here, or the
+  // absence below would just be the no-selection default doing its usual work.
+  assert.ok(
+    e6NoWindow.includes("branches named in the memo"),
+    `the memo selected nothing, so this repository never reached the named window; got: ${e6NoWindow}`
+  );
+  assert.equal(
+    countOf(e6NoWindow, "Merge pull request #5"),
+    0,
+    `a 2024 landing survived the 7-day nameless bound; got: ${e6NoWindow}`
+  );
+  // The needle above only exists in the nameless render form, so on its own it
+  // is green even when the landing survives under a false `branch: main`
+  // header. The landing's own commit subject is carried by either form.
+  assert.equal(
+    countOf(e6NoWindow, "some fork work"),
+    0,
+    `the landing survived the nameless bound under some other header; got: ${e6NoWindow}`
+  );
+  // The other half, or the first passes for the wrong reason: with a window
+  // that covers it, the same landing renders — and renders nameless.
+  const s = section(e6Windowed, FORK_MERGE_HEADER);
+  assert.ok(s, `the landing is absent even under a window covering it; got: ${e6Windowed}`);
+  assert.ok(hasSubject(s.body, "some fork work"), "the landing rendered without its commits");
+  assert.equal(
+    countOf(e6Windowed, "branch: main"),
+    0,
+    `the base was named as a branch; got: ${e6Windowed}`
+  );
+});
+
+check("E7 — the appearance direction: a selection that never matches the base no longer withholds it", () => {
+  const s = section(narrowGlobOut, FORK_MERGE_HEADER);
+  assert.ok(
+    s,
+    `the landing is still filtered out by a name it could never satisfy; got: ${narrowGlobOut}`
+  );
+  assert.ok(hasSubject(s.body, "some fork work"), "the landing rendered without its commits");
+  assert.equal(
+    countOf(narrowGlobOut, "branch: main"),
+    0,
+    `the base was named as a branch; got: ${narrowGlobOut}`
+  );
+});
+
+check("M1 — no header names the base as a branch, in any mode or window", () => {
+  for (const [label, out] of [
+    ["glob, wide", e1Out],
+    ["no selection", e2Out],
+    ["narrow glob", narrowGlobOut],
+    ["remote base, glob", e3Out],
+    ["pasted base spelling, no window", e6NoWindow],
+    ["pasted base spelling, wide", e6Windowed],
+    ["glob, no window", baseNamedMergeOut],
+  ]) {
+    for (const header of sections(out).map((s) => s.header)) {
+      // The `(landed <date>)` suffix is optional, not decorative: M1 covers
+      // *both* header forms, and the name-confirmed one ends in that suffix
+      // rather than in the name (confirmedHeader). Anchored at the name alone,
+      // this regex sees `--- landed <date> branch: main` and is blind to
+      // `--- confirmed landed on main branch: main (landed <date>)` — the one
+      // form the `glob, no window` entry above can actually produce, since
+      // there rendering is windowed out and `namedSelected` is not. The anchor
+      // itself stays: without it `branch: mainline` would trip this.
+      assert.ok(
+        !/(?:^--- landed \S+ branch: |branch: )(?:main|origin\/main)(?: \(landed [^)]+\))?$/.test(
+          header
+        ),
+        `${label}: a header named the base as a branch: ${header}`
+      );
+    }
+  }
+});
+
+/**
+ * §Spec's third consequence of "nameless is meant in full" — the one E1-E7 do
+ * not enumerate. E6 and E7 pin the two *window* directions in which a
+ * base-naming merge's membership moves; this pins the cap direction, which
+ * §Spec states in the same breath ("the nameless window **and** the nameless
+ * cap priority") and no criterion measures. Not an E check: it is not one of
+ * the contract's acceptance criteria, it is the check that makes the cost the
+ * contract claims to state a measured fact rather than an assertion.
+ *
+ * A16 is the mirror image — a *selected named* landing surviving nameless
+ * landings that crowd the cap. What moved is which side of that line a
+ * base-naming merge falls on, and under `branches:*` it used to fall on the
+ * protected side.
+ */
+console.log("a base-naming merge takes the nameless cap priority too");
+
+const CROWD_FORK_HEADER = "--- landed 2024-09-01 merge: Merge pull request #5 from someuser/main";
+const crowdedBaseNamedOut = await tryLoad([
+  `${buildBaseNamedMergeCrowdedFixture(MAX_BRANCHES)} branches:* ${WIDE}`,
+]);
+// Same shape, same spec, same window — only the crowd differs.
+const roomyBaseNamedOut = await tryLoad([
+  `${buildBaseNamedMergeCrowdedFixture(3)} branches:* ${WIDE}`,
+]);
+
+check("cap priority — a landing left nameless by landingName loses its slot to the named ones", () => {
+  // The roomy half first, or the absence below could be the window's doing or
+  // the name filter's rather than the cap's.
+  const s = section(roomyBaseNamedOut, CROWD_FORK_HEADER);
+  assert.ok(
+    s,
+    `the base-naming merge did not render even with cap slots to spare; got: ${roomyBaseNamedOut}`
+  );
+  assert.ok(hasSubject(s.body, "some fork work"), "the landing rendered without its commits");
+
+  // Crowded: it was in `selected` — the notice counts it, base commit included
+  // — and lost its slot to MAX_BRANCHES named landings, every one of them
+  // older than it.
+  assert.ok(
+    crowdedBaseNamedOut.includes(
+      `(only the ${MAX_BRANCHES} most recent of ${MAX_BRANCHES + 2} landings were rendered)`
+    ),
+    "the cap did not truncate the expected set, so this repository never tested the priority"
+  );
+  assert.ok(
+    !section(crowdedBaseNamedOut, CROWD_FORK_HEADER),
+    "a landing with no name kept a cap slot the named landings had already filled"
+  );
+  assert.equal(
+    countOf(crowdedBaseNamedOut, "some fork work"),
+    0,
+    "the evicted landing's commits rendered anyway"
+  );
+});
+
+/**
+ * M1's other header form, in the one window shape that produces it. Rendering
+ * is windowed; `namedSelected` — the read whose base guard this contract
+ * deletes — is not, so a spec whose window excludes a landing still reports
+ * its name through `--- confirmed landed on <base> branch: <name>`. Every
+ * check above renders its landings, which is exactly when that form cannot
+ * arise, so B12 is the whole of what stands behind the deletion: glob mode,
+ * display spelling. The unpulled-clone arm reaches the same read from a
+ * pasted candidate and in **both** spellings — one spec, two headers naming
+ * the base after itself before the fix.
+ */
+console.log("the base is not confirmed by name where its landing is windowed out either");
+
+// Ends before either base-naming merge: both stay in `judged`, which the
+// header-only path reads unwindowed, while nothing renders them.
+const HEADER_ONLY = "since:2024-01-01T00:00:00Z until:2024-02-01";
+const headerOnlyBase = await tryLoad([`${remoteBaseNamedRepo} ${HEADER_ONLY}`], UNPULLED_MEMO);
+// The same window shape over a branch that is not the base, as a guard on the
+// shape itself: a window that reached the header-only path not at all would
+// leave the absences above passing for the wrong reason. It trails them
+// deliberately — it is the weaker claim, and the pre-fix run must report the
+// base naming itself rather than this.
+const headerOnlyNamed = await tryLoad([`${baseNamedMergeRepo} ${HEADER_ONLY}`], "wrapped up feature/x");
+
+check("the windowed-out header-only path confirms a real branch, and the base in neither spelling", () => {
+  // Premise, as in E6: the memo's `origin/main` is what selected here, or the
+  // base was never a name this path could have confirmed.
+  assert.ok(
+    headerOnlyBase.includes("branches named in the memo"),
+    `the memo selected nothing; got: ${headerOnlyBase}`
+  );
+  assert.ok(
+    section(headerOnlyBase, "--- landed 2024-01-01 direct"),
+    `the spec rendered nothing at all, so it never reached a header; got: ${headerOnlyBase}`
+  );
+  assert.equal(
+    countOf(headerOnlyBase, "branch: main"),
+    0,
+    `the base confirmed itself by name, display form; got: ${headerOnlyBase}`
+  );
+  assert.equal(
+    countOf(headerOnlyBase, "branch: origin/main"),
+    0,
+    `the base confirmed itself by name, ref form; got: ${headerOnlyBase}`
+  );
+  assert.ok(
+    headerOnlyNamed.includes("--- confirmed landed on main branch: feature/x (landed 2024-04-01)"),
+    `this window never reached the header-only path, so the absences above prove nothing; got: ${headerOnlyNamed}`
+  );
+});
+
+/**
+ * The mirror of E6, across the same split. E6 pins that in pasted mode with no
+ * window a base-naming merge takes the *nameless* bound and disappears; this
+ * pins the case where its message names a selected branch after all. Path 1
+ * then gives it that name — E4's outcome, reached from a pasted candidate
+ * rather than a glob — and a *named* landing in pasted mode has no window at
+ * all, so the same 2024 merge E6 loses renders here in full. Before the fix
+ * the merge-parsed base name both blocked path 1 and failed `hit`, so the
+ * landing rendered nowhere and its branch fell through to a paths-2/3 header.
+ */
+console.log("a base-naming merge that path 1 renames takes the named arm's window");
+
+const pastedPath1Out = await tryLoad([`${baseNamedMergeRepo}`], "wrapped up feature/x");
+
+check("path 1 names a base-naming merge from a pasted candidate, and the named arm bounds it by nothing", () => {
+  const s = section(pastedPath1Out, "--- landed 2024-04-01 branch: feature/x");
+  assert.ok(
+    s,
+    `the landing is absent though the named arm takes no default window; got: ${pastedPath1Out}`
+  );
+  assert.ok(hasSubject(s.body, "second fork work"), "the named landing rendered without its commits");
+  assert.equal(
+    countOf(pastedPath1Out, "--- confirmed landed on"),
+    0,
+    `feature/x took a header-only section instead of its own landing; got: ${pastedPath1Out}`
   );
 });
 

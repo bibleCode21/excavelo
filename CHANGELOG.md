@@ -13,6 +13,10 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - **Landings without a branch name are now bounded by the window when you select branches.** Previously a pasted selection walked the base's entire history with no window, which on a real repository produced 55,000 characters of log for a week's work.
 - **A confirmed branch is now reported by name whatever the window does.** Narrowing `since:`/`until:` (or a `branches:<glob>` with no window at all, which takes the 7-day default) no longer drops a named branch from the output — if its landing does not render, the branch still gets a dated, header-only `--- confirmed landed on <base> branch: <name> (landed <date>)` section.
 
+### Fixed
+
+- **A merge from a fork's `main` no longer labels the landing `branch: main`.** A pull-request merge whose subject reads `Merge pull request #5 from someuser/main` — ordinary whenever a contributor's fork also defaults to `main` — was reported as your default branch having landed on itself. Such a landing now carries no branch name and is reported as `--- landed <date> merge: <subject>`, like any other merge whose subject names no branch. One consequence worth knowing: because the landing is now genuinely nameless, it takes the same 7-day bound every nameless landing takes, so in a selection driven by branch names pasted from a memo one of these older than a week is omitted rather than reported under the wrong name. Under a `branches:<glob>` selection that does not match your default branch, the opposite happens — such a merge now appears where it was previously left out.
+
 ### Removed
 
 - **`--- not yet on <base>` sections.** `[!git]` reports only what reached the default branch; work still on a branch is no longer included, and the `work-report` template's "In progress / carried over" section is now filled from the memo alone. A branch that cannot be confirmed as landed is reported nowhere rather than guessed at — a squash that rewrites the subjects it absorbs leaves no evidence to follow, and naming work as shipped on a guess is worse than omitting it.
