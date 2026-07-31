@@ -550,6 +550,109 @@ function buildBaseNamedMergeCrowdedFixture(namedCount) {
 }
 
 /**
+ * docs/specs/git-log-base-guard-pinning.md, item 15 — the one input shape that
+ * reaches loadGitLog's path-1 write guard. The base resolves to `origin/main`,
+ * and a *third* remote's `upstream/main` carries the newest tip in the
+ * repository: enumerateBranches sorts by committer date and dedups by display,
+ * so that ref claims the display name `main` and drops `origin/main` from the
+ * list. A memo pasting `upstream/main` then clears `namesBase` — it is neither
+ * of the base's two spellings — and comes back out of `displayOf` as `main`,
+ * the base's own display name. Nothing downstream of the guard catches it.
+ *
+ * The landing has to sit inside `origin/main` and not merely inside the local
+ * `main`: the first-parent walk runs on `base.ref`, so a landing outside it is
+ * not a landing at all.
+ */
+function buildDisplayCollisionFixture() {
+  const repo = path.join(tmp, "display-collision");
+  fs.mkdirSync(repo);
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  const git = makeGit(repo);
+  fs.writeFileSync(path.join(repo, "README"), "base\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", "base"], at("2024-08-01T12:00:00Z"));
+  // Squash-shaped — single parent, and its message names where it came from,
+  // which is the only evidence path 1 ever has. `upstream/main` is a whole
+  // ref-charset token, so branchCandidates yields it from a memo and
+  // mentionsName matches it here.
+  fs.writeFileSync(path.join(repo, "hotfix.txt"), "hotfix\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", "hotfix from upstream/main applied"], at("2024-09-01T12:00:00Z"));
+  const head = git(["rev-parse", "main"]).trim();
+  git(["update-ref", "refs/remotes/origin/main", head]);
+  git(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+  // Newest ref of all, so for-each-ref lists it first and the dedup keeps its
+  // display form. Built with commit-tree so the checked-out branch stays put.
+  const tree = git(["rev-parse", "main^{tree}"]).trim();
+  const upstream = git(
+    ["commit-tree", tree, "-p", head, "-m", "upstream moved on"],
+    at("2024-10-01T12:00:00Z")
+  ).trim();
+  git(["update-ref", "refs/remotes/upstream/main", upstream]);
+  return repo;
+}
+
+/**
+ * docs/specs/git-log-base-guard-pinning.md, item 18 — a `branches:` glob
+ * spelled in the base's *ref* form in a repository where that ref lost the
+ * display dedup. The base resolves to `origin/main`; the local `main` is one
+ * commit ahead and newest of all, so enumerateBranches keeps
+ * {display:"main", ref:"main"} and `branches:origin/main` selects nothing at
+ * all, which is what gets the glob gate reached.
+ *
+ * On the base, in commit order: the root; a two-parent merge whose subject
+ * parses to `origin/main` and which landingName therefore leaves nameless — the
+ * landing the glob matched and could not name; a direct commit, so a window can
+ * cover a landing of the base's own without reaching back to the root; and an
+ * ordinary `feature/x` merge, which `branches:origin/main` must **not** select
+ * and which is what separates a gate that keeps the repository a selection from
+ * one that drops it to the no-selection path.
+ */
+function buildBaseRefGlobFixture() {
+  const repo = path.join(tmp, "base-ref-glob");
+  fs.mkdirSync(repo);
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  const git = makeGit(repo);
+  fs.writeFileSync(path.join(repo, "README"), "base\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", "base"], at("2024-01-01T12:00:00Z"));
+  const root = git(["rev-parse", "main"]).trim();
+  const tree = git(["rev-parse", "main^{tree}"]).trim();
+  // `Merge branch '<x>'` captures the quoted name whole, so this parses to the
+  // base's ref spelling rather than its display one.
+  const baseSide = git(
+    ["commit-tree", tree, "-p", root, "-m", "work from the mirror"],
+    at("2024-03-01T11:00:00Z")
+  ).trim();
+  const baseMerge = git(
+    ["commit-tree", tree, "-p", root, "-p", baseSide, "-m", "Merge branch 'origin/main'"],
+    at("2024-03-01T12:00:00Z")
+  ).trim();
+  const direct = git(
+    ["commit-tree", tree, "-p", baseMerge, "-m", "hotfix straight on the base"],
+    at("2024-04-01T12:00:00Z")
+  ).trim();
+  const featureSide = git(
+    ["commit-tree", tree, "-p", direct, "-m", "work on the feature"],
+    at("2024-05-01T11:00:00Z")
+  ).trim();
+  const featureMerge = git(
+    ["commit-tree", tree, "-p", direct, "-p", featureSide, "-m", "Merge branch 'feature/x'"],
+    at("2024-05-01T12:00:00Z")
+  ).trim();
+  git(["update-ref", "refs/remotes/origin/main", featureMerge]);
+  git(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+  git(["update-ref", "refs/heads/feature/x", featureSide]);
+  const ahead = git(
+    ["commit-tree", tree, "-p", featureMerge, "-m", "local work not pushed"],
+    at("2024-06-01T12:00:00Z")
+  ).trim();
+  git(["update-ref", "refs/heads/main", ahead]);
+  git(["reset", "-q", "--hard", "main"]);
+  return repo;
+}
+
+/**
  * git-log-landed-confirmation's fixture. Every landing here is single-parent —
  * a squash/rebase repository, the shape the landed predicate exists for, where
  * no landing carries a branch name of its own. It plants one instance of each
@@ -4025,6 +4128,82 @@ check("path 1 names a base-naming merge from a pasted candidate, and the named a
     0,
     `feature/x took a header-only section instead of its own landing; got: ${pastedPath1Out}`
   );
+});
+
+/**
+ * docs/specs/git-log-base-guard-pinning.md — the two edges git-log-base-named-merge
+ * left unpinned. F1 holds the path-1 write guard, which rejects a real input
+ * that no other check in this file produces; F3 and F5 are the preservation
+ * halves of the gate change F2 and F4 make (the error path narrows and pasted
+ * mode does not move), and both are green before it as well as after.
+ */
+console.log("base-naming edges (F1-F5)");
+
+const displayCollisionRepo = buildDisplayCollisionFixture();
+const collisionOut = await tryLoad(
+  [`${displayCollisionRepo} since:2024-01-01T00:00:00Z`],
+  "picked up upstream/main"
+);
+
+check("F1 — a pasted candidate displayOf folds onto the base's own name names nothing", () => {
+  // Premise: `upstream/main` is what selected here, or path 1 never ran and
+  // the two absences below would hold for a reason this check does not test.
+  assert.ok(
+    collisionOut.includes("branches named in the memo"),
+    `the memo selected nothing, so the write guard was never reached; got: ${collisionOut}`
+  );
+  // Asserted positively, or a spec that rendered nothing passes the counts.
+  const s = section(collisionOut, "--- landed 2024-09-01 direct");
+  assert.ok(s, `the landing lost its section instead of losing its name; got: ${collisionOut}`);
+  assert.ok(
+    hasSubject(s.body, "hotfix from upstream/main applied"),
+    "the landing rendered without its own commit"
+  );
+  assert.equal(
+    countOf(collisionOut, "branch: main"),
+    0,
+    `the guard let the base's display form name a landing; got: ${collisionOut}`
+  );
+  assert.equal(
+    countOf(collisionOut, "branch: origin/main"),
+    0,
+    `the guard let the base's ref form name a landing; got: ${collisionOut}`
+  );
+});
+
+const globRepo = buildBaseRefGlobFixture();
+const globNothing = await tryLoad([`${globRepo} branches:nosuchbranch* since:2024-02-01`]);
+const globPastedBaseRef = await tryLoad(
+  [`${globRepo} since:2024-01-01T00:00:00Z`],
+  "picked up origin/main"
+);
+
+check("F3 — a glob matching no name the repository carries still raises git.no-branches", () => {
+  assert.equal(
+    globNothing,
+    `<threw: ${t("git.no-branches", { glob: "nosuchbranch*", path: globRepo })}>`
+  );
+});
+
+check("F5 — pasted-candidate mode is untouched: the base's ref spelling still takes the plain path", () => {
+  // The only check in this file that can see an unscoped widening: the memo's
+  // `origin/main` is a candidate the base-naming merge's parsed subject
+  // matches, so a widened question not scoped to `spec.branches` puts this
+  // repository into selection mode — where the note appears and the landing
+  // the selection cannot match is filtered out. Every other check agrees
+  // between the two implementations, F1's included (its paste selects a real
+  // branch, so `selectedBranches` is never empty there).
+  assert.equal(
+    countOf(globPastedBaseRef, "branches named in the memo"),
+    0,
+    `the pasted base spelling put the repository into selection mode; got: ${globPastedBaseRef}`
+  );
+  const s = section(globPastedBaseRef, "--- landed 2024-05-01 branch: feature/x");
+  assert.ok(
+    s,
+    `the plain path's landings were filtered by a selection; got: ${globPastedBaseRef}`
+  );
+  assert.ok(hasSubject(s.body, "work on the feature"), "the landing rendered without its commits");
 });
 
 fs.rmSync(tmp, { recursive: true, force: true });
