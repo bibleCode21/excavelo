@@ -4172,16 +4172,81 @@ check("F1 — a pasted candidate displayOf folds onto the base's own name names 
 });
 
 const globRepo = buildBaseRefGlobFixture();
+// The base's ref spelling, windowed over both merges *and* the direct commit
+// between them. The glob repository goes first: loadGitLog throws for the whole
+// spec list rather than one spec, so a throw here takes the second repository's
+// output with it — which is the blast radius item 18 is about.
+const globTwoSpecs = await tryLoad([
+  `${globRepo} branches:origin/main since:2024-02-01`,
+  `${repo} ${WINDOW}`,
+]);
 const globNothing = await tryLoad([`${globRepo} branches:nosuchbranch* since:2024-02-01`]);
+const globDefaultWindow = await tryLoad([`${globRepo} branches:origin/main`]);
 const globPastedBaseRef = await tryLoad(
   [`${globRepo} since:2024-01-01T00:00:00Z`],
   "picked up origin/main"
 );
 
+check("F2 — a glob a base-naming merge matched renders the repository as a selection", () => {
+  assert.ok(
+    !globTwoSpecs.startsWith("<threw:"),
+    `the glob matched a landing whose name was unusable and the callout died; got: ${globTwoSpecs}`
+  );
+  assert.ok(
+    section(globTwoSpecs, MERGED_HEADER),
+    `the other repository in the callout lost its output; got: ${globTwoSpecs}`
+  );
+  const merge = section(globTwoSpecs, "--- landed 2024-03-01 merge: Merge branch 'origin/main'");
+  assert.ok(merge, `the landing the glob matched did not render; got: ${globTwoSpecs}`);
+  assert.ok(hasSubject(merge.body, "work from the mirror"), "the landing rendered without its commits");
+  const direct = section(globTwoSpecs, "--- landed 2024-04-01 direct");
+  assert.ok(direct, `the base's own direct landing did not render; got: ${globTwoSpecs}`);
+  assert.ok(
+    hasSubject(direct.body, "hotfix straight on the base"),
+    "the direct landing rendered without its commit"
+  );
+  assert.equal(
+    countOf(globTwoSpecs, "branch: main"),
+    0,
+    `a header named the base's display form; got: ${globTwoSpecs}`
+  );
+  assert.equal(
+    countOf(globTwoSpecs, "branch: origin/main"),
+    0,
+    `a header named the base's ref form; got: ${globTwoSpecs}`
+  );
+  // The two below are what a gate widened at the throw alone cannot satisfy:
+  // it survives the spec and then falls through to the no-selection path,
+  // which has no note and filters nothing.
+  assert.ok(
+    globTwoSpecs.includes(", branches origin/main)"),
+    `the repository fell out of selection mode; got: ${globTwoSpecs.split("\n")[0]}`
+  );
+  assert.equal(
+    countOf(globTwoSpecs, "branch: feature/x"),
+    0,
+    `a landing the glob does not match rendered; got: ${globTwoSpecs}`
+  );
+});
+
 check("F3 — a glob matching no name the repository carries still raises git.no-branches", () => {
   assert.equal(
     globNothing,
     `<threw: ${t("git.no-branches", { glob: "nosuchbranch*", path: globRepo })}>`
+  );
+});
+
+check("F4 — the same glob with no window renders an empty window, it does not throw", () => {
+  // The default spelling of the fixed callout: a bare `branches:` takes the
+  // 7-day default while the gate reads the windowless `judged`, so this is the
+  // input a user is most likely to write and the one the trade is stated on.
+  assert.ok(
+    !globDefaultWindow.startsWith("<threw:"),
+    `the default spelling still raises an error; got: ${globDefaultWindow}`
+  );
+  assert.ok(
+    globDefaultWindow.includes("(no commits in this window)"),
+    `expected the ordinary empty-window section; got: ${globDefaultWindow}`
   );
 });
 
@@ -4204,6 +4269,36 @@ check("F5 — pasted-candidate mode is untouched: the base's ref spelling still 
     `the plain path's landings were filtered by a selection; got: ${globPastedBaseRef}`
   );
   assert.ok(hasSubject(s.body, "work on the feature"), "the landing rendered without its commits");
+});
+
+/**
+ * §Invariants' other half: *the error path narrows, never widens*. F3 holds the
+ * "no name at all" direction; this holds the bound on the one exception. The
+ * widening asks about exactly the landings the merge-parse write site could
+ * have named, which is what `parents.length >= 2` is doing in it — a
+ * single-parent commit whose subject still reads `Merge branch '<x>'` is never
+ * read as a name (enumerateLandings' parent-count test, pinned by the
+ * write-boundary characterization above), so nothing about it matched the glob
+ * and `git.no-branches` remains the true answer.
+ *
+ * buildWriteBoundaryFixture already carries the shape and is reused unchanged:
+ * a flattened pull-merge dated 2024-03-01, single-parent, subject
+ * `Merge branch 'feature/flattened'`, with no ref of that name in the
+ * repository. Its landing is nameless, so it is the exact input that reaches
+ * the widened disjunct and must be rejected by it.
+ *
+ * Mutation-verified: dropping `l.parents.length >= 2` turns this check red and
+ * leaves all 180 others green — the same reason F5 exists for the scoping.
+ */
+const globFlattenedSubject = await tryLoad([
+  `${writeBoundaryRepo} branches:feature/flattened since:2024-01-01T00:00:00Z`,
+]);
+
+check("F6 — a glob matched only by a single-parent merge-shaped subject still raises git.no-branches", () => {
+  assert.equal(
+    globFlattenedSubject,
+    `<threw: ${t("git.no-branches", { glob: "feature/flattened", path: writeBoundaryRepo })}>`
+  );
 });
 
 fs.rmSync(tmp, { recursive: true, force: true });
