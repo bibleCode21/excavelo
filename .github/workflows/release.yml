@@ -61,6 +61,12 @@ jobs:
           # Trim leading blank lines.
           awk 'NF{p=1} p' /tmp/release-notes.md > /tmp/release-notes-trimmed.md
           mv /tmp/release-notes-trimmed.md /tmp/release-notes.md
+          # An empty extraction is not a release with no news — it means no
+          # section was found, and gh would publish an empty body and succeed.
+          if [ ! -s /tmp/release-notes.md ]; then
+            echo "::error::No release notes for ${TAG}: CHANGELOG.md has no non-blank content under a line starting '## [${TAG}]'. Refusing to publish an empty release body."
+            exit 1
+          fi
           echo "--- release notes for ${TAG} ---"
           cat /tmp/release-notes.md
 
