@@ -5,11 +5,14 @@ All notable changes to ExcaVelo are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.5.0] - 2026-08-02
+
+### Added
+
+- **`[!git]` now confirms which of your branches actually reached the default branch.** Paste branch names into a memo and ExcaVelo checks each one against the base three ways — a landing whose message names it (so a branch deleted after merging still counts), every commit subject of the branch resolving to exactly one landing, or the branch already being part of the base's history — and reports the confirmed ones by name under `--- confirmed landed on <base> branch: <name>`. This closes the gap 1.4.3 recorded as a known limitation: where landings carry no branch name — squash- and rebase-merge repositories — pasted branch names could not narrow the log.
 
 ### Changed
 
-- **`[!git]` now confirms which of your branches actually reached the default branch.** Paste branch names into a memo and ExcaVelo checks each one against the base three ways — a landing whose message names it (so a branch deleted after merging still counts), every commit subject of the branch resolving to exactly one landing, or the branch already being part of the base's history — and reports the confirmed ones by name under `--- confirmed landed on <base> branch: <name>`. This closes the squash/rebase gap left open in 1.4.0: in a repository whose history carries no merge commits, pasted branch names previously appeared nowhere in the output at all.
 - **Landings without a branch name are now bounded by the window when you select branches.** Previously a pasted selection walked the base's entire history with no window, which on a real repository produced 55,000 characters of log for a week's work.
 - **A confirmed branch is now reported by name whatever the window does.** Narrowing `since:`/`until:` (or a `branches:<glob>` with no window at all, which takes the 7-day default) no longer drops a named branch from the output — if its landing does not render, the branch still gets a dated, header-only `--- confirmed landed on <base> branch: <name> (landed <date>)` section.
 
@@ -17,6 +20,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 - **A `branches:` glob whose only match is your default branch's own name no longer empties the whole callout.** Writing `branches:origin/main` in a repository where that merge is the only thing the glob reaches raised "No branches match …" — and because one failing repository fails the entire `[!git]` block, every other repository in the same callout lost its output with it. That repository now renders as an ordinary selection: the merge appears as `--- landed <date> merge: <subject>`, your default branch's own landings appear as they always did, and branches the glob does not match stay filtered out. With no `since:`/`until:` the usual 7-day window applies, so the callout may report an empty window rather than an error. A glob that genuinely matches no branch you have still reports "No branches match …".
 - **A merge from a fork's `main` no longer labels the landing `branch: main`.** A pull-request merge whose subject reads `Merge pull request #5 from someuser/main` — ordinary whenever a contributor's fork also defaults to `main` — was reported as your default branch having landed on itself. Such a landing now carries no branch name and is reported as `--- landed <date> merge: <subject>`, like any other merge whose subject names no branch. One consequence worth knowing: because the landing is now genuinely nameless, it takes the same 7-day bound every nameless landing takes, so in a selection driven by branch names pasted from a memo one of these older than a week is omitted rather than reported under the wrong name. Under a `branches:<glob>` selection that does not match your default branch, the opposite happens — such a merge now appears where it was previously left out.
+- **A `[!git]` path starting with `~<name>` is left alone instead of being mangled.** Only `~` and `~/…` resolve to your home directory. `~someone` was previously glued onto the home path with no separator, so with a home of `/home/dev` a path of `~ops` read `/home/devops` — an unrelated repository, reported as yours. The unsupported syntax is now left untouched.
 
 ### Removed
 
