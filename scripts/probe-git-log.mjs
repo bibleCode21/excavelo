@@ -4042,20 +4042,9 @@ check("M1 — no header names the base as a branch, in any mode or window", () =
   }
 });
 
-/**
- * §Spec's third consequence of "nameless is meant in full" — the one E1-E7 do
- * not enumerate. E6 and E7 pin the two *window* directions in which a
- * base-naming merge's membership moves; this pins the cap direction, which
- * §Spec states in the same breath ("the nameless window **and** the nameless
- * cap priority") and no criterion measures. Not an E check: it is not one of
- * the contract's acceptance criteria, it is the check that makes the cost the
- * contract claims to state a measured fact rather than an assertion.
- *
- * A16 is the mirror image — a *selected named* landing surviving nameless
- * landings that crowd the cap. What moved is which side of that line a
- * base-naming merge falls on, and under `branches:*` it used to fall on the
- * protected side.
- */
+// One of the three "Beyond E1–E7" checks — see git-log-base-named-merge.md's
+// section of that name for why these exist and what each pins; not restated
+// here to avoid a second copy of that derivation drifting from the first.
 console.log("a base-naming merge takes the nameless cap priority too");
 
 const CROWD_FORK_HEADER = "--- landed 2024-09-01 merge: Merge pull request #5 from someuser/main";
@@ -4097,17 +4086,8 @@ check("cap priority — a landing left nameless by landingName loses its slot to
   );
 });
 
-/**
- * M1's other header form, in the one window shape that produces it. Rendering
- * is windowed; `namedSelected` — the read whose base guard this contract
- * deletes — is not, so a spec whose window excludes a landing still reports
- * its name through `--- confirmed landed on <base> branch: <name>`. Every
- * check above renders its landings, which is exactly when that form cannot
- * arise, so B12 is the whole of what stands behind the deletion: glob mode,
- * display spelling. The unpulled-clone arm reaches the same read from a
- * pasted candidate and in **both** spellings — one spec, two headers naming
- * the base after itself before the fix.
- */
+// Another of the three "Beyond E1–E7" checks — see git-log-base-named-merge.md's
+// section of that name.
 console.log("the base is not confirmed by name where its landing is windowed out either");
 
 // Ends before either base-naming merge: both stay in `judged`, which the
@@ -4148,16 +4128,8 @@ check("the windowed-out header-only path confirms a real branch, and the base in
   );
 });
 
-/**
- * The mirror of E6, across the same split. E6 pins that in pasted mode with no
- * window a base-naming merge takes the *nameless* bound and disappears; this
- * pins the case where its message names a selected branch after all. Path 1
- * then gives it that name — E4's outcome, reached from a pasted candidate
- * rather than a glob — and a *named* landing in pasted mode has no window at
- * all, so the same 2024 merge E6 loses renders here in full. Before the fix
- * the merge-parsed base name both blocked path 1 and failed `hit`, so the
- * landing rendered nowhere and its branch fell through to a paths-2/3 header.
- */
+// The last of the three "Beyond E1–E7" checks — see git-log-base-named-merge.md's
+// section of that name.
 console.log("a base-naming merge that path 1 renames takes the named arm's window");
 
 const pastedPath1Out = await tryLoad([`${baseNamedMergeRepo}`], "wrapped up feature/x");

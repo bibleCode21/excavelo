@@ -31,9 +31,10 @@ import { t } from "../i18n";
  * selection, so no date window is applied unless the spec sets one.
  * `branches:<glob>` selects the same way (default window: last 7 days). Name
  * filtering only ever applies to landings that *have* a name — a squash,
- * rebase, or direct landing has none and is always emitted, though under a
- * selection it is bounded by the window so a pasted name cannot dump the whole
- * history.
+ * rebase, or direct landing has none, as does a merge whose subject names the
+ * base itself (not a usable name for a landing), and all are always emitted,
+ * though under a selection they are bounded by the window so a pasted name
+ * cannot dump the whole history.
  *
  * A selected branch is then *confirmed* against the base by three paths, in
  * order: a landing whose message names it (which needs no ref, so a branch
@@ -530,7 +531,10 @@ async function enumerateLandings(
       message: body ? `${subjectText}\n${body}` : subjectText,
       // A merge subject can parse to the base's own name — `Merge pull request
       // #5 from someuser/main` whenever a contributor's fork also defaults to
-      // `main` — and that is not a usable name for a landing.
+      // `main` — and that is not a usable name for a landing. The read-side
+      // gate in loadGitLog (the `spec.branches` widening beside the throw)
+      // re-derives this same rule to ask whether a glob matched such a merge
+      // — keep both in sync if this changes.
       branch: parentList.length >= 2 ? landingName(base, parseMergeBranchName(subjectText)) : null,
     });
   }
@@ -878,7 +882,11 @@ async function loadConfirmedSections(
   const sections: string[] = [];
   // namesBase is applied again here rather than trusted from the caller: this
   // is the one exclusion the contract states predicate-wide, and paths 2 and 3
-  // are where the base would confirm itself trivially.
+  // are where the base would confirm itself trivially. A different object
+  // than the one the write-boundary comment above `landingName` governs —
+  // this filters raw `BranchRef` candidates being considered for paths 2/3,
+  // never `Landing.branch` itself, so it is not a second read-side guard on
+  // the field that comment forbids re-adding.
   const eligible = branches.filter(
     (b) =>
       !namesBase(base, b.ref) &&
@@ -1030,12 +1038,6 @@ export async function loadGitLog(specs: string[], memoText = ""): Promise<string
         names = candidates.filter((c) => !namesBase(base, c));
         note = ", branches named in the memo";
       }
-      // A name path 1 assigned is selected by construction, but it is stored in
-      // the ref's display form, which `test` may not recognise — pasting only
-      // `origin/feature/x` puts that spelling in the candidate set while the
-      // landing is labelled `feature/x`. Without this the landing would be
-      // named and then filtered straight back out.
-      const assigned = new Set<string>();
       // A selected branch's two spellings (display and ref) name the same
       // branch, but `test` was built from whichever spelling did the
       // selecting: `selectBranches` matches either, so a branch selected only
@@ -1053,8 +1055,7 @@ export async function loadGitLog(specs: string[], memoText = ""): Promise<string
         selectedSpellings.add(b.ref.toLowerCase());
       }
       const match = (name: string | null) =>
-        name !== null &&
-        (test(name) || assigned.has(name.toLowerCase()) || selectedSpellings.has(name.toLowerCase()));
+        name !== null && (test(name) || selectedSpellings.has(name.toLowerCase()));
 
       // The rendered name is the ref's display form whenever a ref exists, so
       // pasting `origin/feature/x` and `feature/x` label the landing
@@ -1093,7 +1094,6 @@ export async function loadGitLog(specs: string[], memoText = ""): Promise<string
           const named = landingName(base, displayOf(name));
           if (named) {
             landing.branch = named;
-            assigned.add(named.toLowerCase());
           }
         }
       }
