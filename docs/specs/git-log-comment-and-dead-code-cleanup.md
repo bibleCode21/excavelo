@@ -1,6 +1,7 @@
 ---
 status: confirmed
 ceremony: trivial
+approved-commit: b37cd88fb7847134526a2b03efdbd085800fd832
 ---
 # `[!git]`: item 17's remaining low-cost bullets — two comment fixes, one pointer comment, one dead-code removal, one probe-comment trim
 
