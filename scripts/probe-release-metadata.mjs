@@ -115,8 +115,7 @@ check("R3 — exactly one CHANGELOG heading names the current version", () => {
   assert.equal(
     section.headings.length,
     1,
-    `expected one line starting \`## [${version}]\` in CHANGELOG.md, found ${section.headings.length}` +
-      ` — with none, release.yml extracts nothing; with more than one, which section it publishes is not decided here`
+    `expected one line starting \`## [${version}]\` in CHANGELOG.md, found ${section.headings.length}`
   );
 });
 
@@ -356,9 +355,11 @@ if (!process.env[CHILD_ENV]) {
         "",
         `## [${version}] - 2026-01-01`,
         "",
-        "## [0.0.1] - 2000-01-01",
+        // Derived, not a literal: `-earlier` cannot collide with the heading
+        // above it, because the pattern carries the closing bracket.
+        `## [${version}-earlier] - 2000-01-01`,
         "",
-        "- an older release's notes, which are not this release's",
+        "- an earlier release's notes, which are not this release's",
         "",
       ])
     );
@@ -397,11 +398,11 @@ if (!process.env[CHILD_ENV]) {
 } else {
   // Reached on every scratch copy, whose stdout only the parent reads. Reached
   // by a human only if this variable leaked into a real shell — in which case
-  // ten checks just vanished from an otherwise identical `all passed`: the nine
-  // mutations and the ci.yml wiring check, which is guarded with them because a
-  // scratch copy has no workflow to read. A guard that drops checks quietly is
-  // the very thing this section exists to make impossible, so it says so.
-  console.log(`  (10 checks skipped — ${CHILD_ENV} is set: 9 mutations + the ci.yml wiring check)`);
+  // most of this file just vanished from an otherwise identical `all passed`. A
+  // guard that drops checks quietly is the very thing this section exists to
+  // make impossible, so it says so. Named, not counted: a count here goes stale
+  // the moment a row is added, which is how it was already wrong once.
+  console.log(`  (skipped — ${CHILD_ENV} is set: the mutation table and the ci.yml wiring check)`);
 }
 
 if (failures.length > 0) {
