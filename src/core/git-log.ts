@@ -1000,12 +1000,15 @@ export async function loadGitLog(specs: string[], memoText = ""): Promise<string
       // Both modes reduce to the same thing — a set of candidate names — so the
       // predicate below cannot tell how a branch was selected, which is right:
       // how it was picked has no bearing on whether it landed.
-      // `names` is the predicate's input and the base is excluded from it — all
-      // three paths, not just the two that query git. `branches:*` matches the
-      // base and `origin/master` is a valid pasted candidate, so leaving it in
-      // lets path 1 name a landing after the base itself: `hotfix applied
-      // straight to main` is enough, and path 1 queries nothing, so an
-      // exclusion applied only where git is called misses it entirely.
+      // `names` is the predicate's input, and the base is excluded from it in
+      // both modes — `branches:*` matches the base and `origin/master` is a
+      // valid pasted candidate, so without this the base's own name is handed
+      // to path 1 as something to look for. An input narrowing, not a guard:
+      // removing it is output-neutral (measured — every check stays green),
+      // because landingName rejects the base's name where a name is actually
+      // assigned, and landingsNaming keys its map per name, so a stray entry
+      // cannot alter another name's match. It stays for what it is; the rule
+      // itself lives at the write site below.
       //
       // `test` is deliberately *not* filtered. It decides selection membership,
       // and A12 fixes that on whether a candidate matched something at all —
@@ -1083,7 +1086,8 @@ export async function loadGitLog(specs: string[], memoText = ""): Promise<string
           // `main`, a pasted `upstream/main` clears namesBase and comes back out
           // of displayOf as the base's own name. Nothing downstream catches it:
           // namedSelected's read-side guard is gone, because this write site is
-          // what the reads now trust. displayOf stays inside this guard rather
+          // what the reads now trust. F1 in scripts/probe-git-log.mjs is the
+          // check that holds it. displayOf stays inside this guard rather
           // than above it because the loop walks selectedBranches in glob mode —
           // hoisting the pair makes it quadratic in the branch count.
           const named = landingName(base, displayOf(name));
@@ -1094,13 +1098,46 @@ export async function loadGitLog(specs: string[], memoText = ""): Promise<string
         }
       }
 
-      if (spec.branches && selectedBranches.length === 0 && !judged.some((l) => match(l.branch))) {
+      // "Nothing that exists matched this glob" and "what matched it carried a
+      // name that was not usable" are different facts, and only the first is an
+      // error. A landing whose merge subject parses to a name the glob matches
+      // has matched the glob, whether or not that name survived landingName —
+      // so the question widens to include it. The parse is re-read here rather
+      // than kept on the Landing: storing the discarded name would give
+      // `Landing.branch` a second, weaker source of truth, which is the shape
+      // the base-naming rule exists to prevent. `parents.length >= 2` mirrors
+      // the merge-parse write site, so the widening asks about exactly the
+      // landings that site could have named.
+      //
+      // Scoped to glob mode: pasted-candidate mode has no gate to relax and
+      // must stay byte-identical — a pasted `origin/main` against a base-naming
+      // merge takes the no-selection path where the base's ref lost the display
+      // dedup, and F5 is the check that holds that. (Not E6: E6's fixture keeps
+      // the base as `{display:"main", ref:"origin/main"}`, so `selectBranches`
+      // selects it, the gate is never reached, and E6 pins the *selected* case.)
+      //
+      // Bound once rather than asked twice: the throw and the selection-mode
+      // decision are the same question, and `judged` is the uncapped
+      // first-parent history. `||` still short-circuits where a glob selected
+      // real branches, which is the case the scan is expensive in.
+      const matched =
+        selectedBranches.length > 0 ||
+        judged.some((l) => match(l.branch)) ||
+        (!!spec.branches &&
+          judged.some(
+            (l) => l.branch === null && l.parents.length >= 2 && match(parseMergeBranchName(l.subject))
+          ));
+
+      if (spec.branches && !matched) {
         throw new Error(t("git.no-branches", { glob: spec.branches, path: spec.path }));
       }
       // Whether this repository is in a selection mode still turns on whether
       // anything matched here — not on whether the predicate confirmed it —
       // so a memo whose only slash-tokens are file paths still falls through.
-      if (selectedBranches.length > 0 || judged.some((l) => match(l.branch))) hit = match;
+      // One binding serves both, or a spec that survived the throw would fall
+      // through to the no-selection path, dropping the `, branches <glob>` note
+      // and rendering the landings the glob does *not* match.
+      if (matched) hit = match;
     }
 
     const sections: string[] = [];
