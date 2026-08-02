@@ -194,24 +194,36 @@ if (!process.env[CHILD_ENV]) {
   // this check green, while the probes stop gating — the same accident by a
   // different keystroke. Catching those needs the structural model this file
   // refuses to build, so they belong to the workflow probe named above.
+  const unwiredIn = (workflow, names) => {
+    const live = workflow.split("\n").filter((line) => !line.trim().startsWith("#"));
+    return names.filter((name) => !live.some((line) => line.includes(`node scripts/${name}`)));
+  };
+
   check("every scripts/probe-*.mjs is run by an uncommented line in ci.yml", () => {
-    const live = read(path.join(".github", "workflows", "ci.yml"))
-      .split("\n")
-      .filter((line) => !line.trim().startsWith("#"));
     const probes = fs
       .readdirSync(path.join(repoRoot, "scripts"))
       .filter((name) => name.startsWith("probe-") && name.endsWith(".mjs"))
       .sort();
     assert.notEqual(probes.length, 0, "found no probe scripts to look for");
-    const unwired = probes.filter(
-      (name) => !live.some((line) => line.includes(`node scripts/${name}`))
-    );
+    const unwired = unwiredIn(read(path.join(".github", "workflows", "ci.yml")), probes);
     assert.deepEqual(
       unwired,
       [],
       `ci.yml never runs ${unwired.join(", ")} — a probe the workflow does not invoke is` +
         ` checks that silently never run, the gap this contract closed for five of them`
     );
+  });
+
+  // The comment filter is what makes the check above a line test rather than the
+  // substring test it replaced, and against the real ci.yml — which has no
+  // commented-out probe — dropping the filter changes nothing, so the check
+  // cannot pin its own predicate. Synthetic input can, and needs no scratch tree.
+  check("unwiredIn ignores a probe that only a comment mentions", () => {
+    const one = ["probe-x.mjs"];
+    assert.deepEqual(unwiredIn("          node scripts/probe-x.mjs", one), []);
+    assert.deepEqual(unwiredIn("          # node scripts/probe-x.mjs", one), one);
+    assert.deepEqual(unwiredIn("      # TODO re-enable node scripts/probe-x.mjs", one), one);
+    assert.deepEqual(unwiredIn("          node scripts/probe-y.mjs", one), one);
   });
 
   const probeFile = fileURLToPath(import.meta.url);
