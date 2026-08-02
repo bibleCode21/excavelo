@@ -89,13 +89,12 @@ check("R2 — versions.json maps this version to manifest.json's minAppVersion",
  * definition, used by R3 below and by the mutation harness further down, so
  * the two cannot drift apart.
  *
- * Both tests are prefix tests per (H1); `## [` is the terminator release.yml
- * uses, so a *different* release's heading ends this section (H2). The body
- * starts *after* the heading, because release.yml's awk skips that line
- * (`{p=1; next}`) — it is not part of what gets published. Slicing from the
- * heading instead would break this in the opposite direction to the obvious
- * guess: the terminator search would match the heading at index 0, leaving an
- * empty body and a check that fails on every input.
+ * Heading per (H1), terminator per (H2). The body starts *after* the heading,
+ * because release.yml's awk skips that line (`{p=1; next}`) — it is not part of
+ * what gets published. Slicing from the heading instead would break this in the
+ * opposite direction to the obvious guess: the terminator search would match the
+ * heading at index 0, leaving an empty body and a check that fails on every
+ * input.
  */
 function sectionOf(allLines) {
   const headings = allLines.reduce(
@@ -111,13 +110,10 @@ function sectionOf(allLines) {
 const section = sectionOf(read("CHANGELOG.md").split("\n"));
 
 check("R3 — exactly one CHANGELOG heading names the current version", () => {
-  // No account of what the awk does with a second heading appears here. Three
-  // were written and all three were refuted by measurement: the outcome turns on
-  // whether the duplicate carries notes of its own and whether it sits above the
-  // section start, and a comment that gets that wrong is worse than no comment,
-  // in a file whose subject is silent failure. What survives is the requirement
-  // itself — the CHANGELOG names this version once, so which lines are "the
-  // section" has one answer.
+  // Two or more headings never empty the extraction (measured), so release.yml's
+  // empty-notes guard cannot catch this one — this check is the only thing that
+  // does. No account of *what* the awk publishes instead lives here: three were
+  // written and measurement refuted all three.
   assert.equal(
     section.headings.length,
     1,
@@ -183,11 +179,9 @@ if (!process.env[CHILD_ENV]) {
   // allowed-surface that can hold it, following probe-settings-tab.mjs:1086,
   // which likewise parks a repo-level invariant in whichever probe stood
   // closest. Its home is a probe about the workflow itself, if one is ever
-  // written. It sits inside the env guard for its own reason, not the mutation
+  // written. It is inside the env guard for its own reason, not the mutation
   // section's: a scratch copy has no `.github/` to read, so an unguarded check
   // would throw in every child and poison the red-set the harness reads back.
-  // (The mutation section is guarded so the recursion terminates — a different
-  // reason, stated where it belongs, below.)
   //
   // A line-level test, not a substring one: `includes(name)` over the raw file
   // passes for a commented-out step, which is the accident above. Step *order*
