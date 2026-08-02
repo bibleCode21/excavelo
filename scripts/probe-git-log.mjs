@@ -4042,7 +4042,7 @@ check("M1 — no header names the base as a branch, in any mode or window", () =
   }
 });
 
-// One of the three "Beyond E1–E7" checks — see git-log-base-named-merge.md's
+// One of the three "Beyond E1–E7" checks — see docs/specs/git-log-base-named-merge.md's
 // section of that name for why these exist and what each pins; not restated
 // here to avoid a second copy of that derivation drifting from the first.
 console.log("a base-naming merge takes the nameless cap priority too");
@@ -4086,7 +4086,7 @@ check("cap priority — a landing left nameless by landingName loses its slot to
   );
 });
 
-// Another of the three "Beyond E1–E7" checks — see git-log-base-named-merge.md's
+// Another of the three "Beyond E1–E7" checks — see docs/specs/git-log-base-named-merge.md's
 // section of that name.
 console.log("the base is not confirmed by name where its landing is windowed out either");
 
@@ -4128,7 +4128,7 @@ check("the windowed-out header-only path confirms a real branch, and the base in
   );
 });
 
-// The last of the three "Beyond E1–E7" checks — see git-log-base-named-merge.md's
+// The last of the three "Beyond E1–E7" checks — see docs/specs/git-log-base-named-merge.md's
 // section of that name.
 console.log("a base-naming merge that path 1 renames takes the named arm's window");
 
