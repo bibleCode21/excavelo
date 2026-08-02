@@ -21,8 +21,11 @@
  * that extraction depends on. Two details are load-bearing and come from the
  * awk's own semantics, stated once here and cited rather than restated below:
  *
- *   (H) Headings match at **line start** — a real one carries a date suffix,
- *       `## [<version>] - <date>`, so this is a prefix test, never equality.
+ *   (H1) The version heading matches at **line start** — a real one carries a
+ *        date suffix, `## [<version>] - <date>`, so this is a prefix test,
+ *        never equality.
+ *   (H2) The terminator is the same shape: the next line starting `## [`, i.e.
+ *        another release's heading, ends this section.
  *   (W) "Not empty" means a line with a **non-whitespace character**: the trim
  *       is `awk 'NF{p=1} p'`, and a whitespace-only line has `NF == 0`, so such
  *       a body extracts to 0 bytes exactly as an absent one does.
@@ -86,14 +89,13 @@ check("R2 — versions.json maps this version to manifest.json's minAppVersion",
  * definition, used by R3 below and by the mutation harness further down, so
  * the two cannot drift apart.
  *
- * Both tests are line-start, not line equality: a real heading carries a date
- * suffix. `## [` is the terminator release.yml itself uses, so a *different*
- * release's heading ends this section. The body starts *after* the heading,
- * because release.yml's awk skips that line (`{p=1; next}`) — it is not part
- * of what gets published. Slicing from the heading instead would break this in
- * the opposite direction to the obvious guess: the terminator search would
- * match the heading at index 0, leaving an empty body and a check that fails
- * on every input.
+ * Both tests are prefix tests per (H1); `## [` is the terminator release.yml
+ * uses, so a *different* release's heading ends this section (H2). The body
+ * starts *after* the heading, because release.yml's awk skips that line
+ * (`{p=1; next}`) — it is not part of what gets published. Slicing from the
+ * heading instead would break this in the opposite direction to the obvious
+ * guess: the terminator search would match the heading at index 0, leaving an
+ * empty body and a check that fails on every input.
  */
 function sectionOf(allLines) {
   const headings = allLines.reduce(
@@ -109,24 +111,18 @@ function sectionOf(allLines) {
 const section = sectionOf(read("CHANGELOG.md").split("\n"));
 
 check("R3 — exactly one CHANGELOG heading names the current version", () => {
-  // What two headings do, measured rather than reasoned about — the previous two
-  // attempts at explaining this mechanism were both wrong. Against the real
-  // CHANGELOG.md, with release.yml's own awk: a duplicate placed immediately
-  // after the heading extracts the same notes as no duplicate at all, while one
-  // placed further down the same section extracts *more* — the second body is
-  // published too, merged into the first section's notes, with the duplicate
-  // heading line itself absent from them. (Stated as a relation, not as byte
-  // counts: an absolute figure here would go stale at the next release.)
-  //
-  // So a duplicate never empties the notes. It makes them wrong in the other
-  // direction: two sections silently become one under a single tag, and which
-  // outcome you get depends on where the duplicate sits. That is what "exactly
-  // one" prevents, and it is why this is a separate check from the body one.
+  // No account of what the awk does with a second heading appears here. Three
+  // were written and all three were refuted by measurement: the outcome turns on
+  // whether the duplicate carries notes of its own and whether it sits above the
+  // section start, and a comment that gets that wrong is worse than no comment,
+  // in a file whose subject is silent failure. What survives is the requirement
+  // itself — the CHANGELOG names this version once, so which lines are "the
+  // section" has one answer.
   assert.equal(
     section.headings.length,
     1,
     `expected one line starting \`## [${version}]\` in CHANGELOG.md, found ${section.headings.length}` +
-      ` — none means release.yml extracts nothing; two means it may merge both sections into one release's notes`
+      ` — with none, release.yml extracts nothing; with more than one, which section it publishes is not decided here`
   );
 });
 
@@ -143,10 +139,9 @@ check("R3 — that heading's section carries something to publish", () => {
 // The four checks above all assert that HEAD is well-formed, so predicates can
 // be gutted underneath them and they keep printing `all passed`. Swap `/\S/`
 // for `!== ""` and a whitespace-only section sails through (W); match the
-// heading with `includes` instead of `startsWith` and an indented one does
-// too (H). Either
-// way the file still says everything is fine while no longer catching the
-// empty release body it exists to catch. A checker whose only evidence is a
+// heading with `includes` instead of `startsWith` and an indented one does too
+// (H1). Either way those four still report that everything is fine while no
+// longer catching what they exist to catch. A checker whose only evidence is a
 // green run on good input is indistinguishable from a vacuous one, and this
 // repository's own §Why is that a silent failure deserves a mechanical guard.
 //
@@ -188,9 +183,11 @@ if (!process.env[CHILD_ENV]) {
   // allowed-surface that can hold it, following probe-settings-tab.mjs:1086,
   // which likewise parks a repo-level invariant in whichever probe stood
   // closest. Its home is a probe about the workflow itself, if one is ever
-  // written. It sits inside the env guard with the mutation section because both
-  // need the real repository — this one a workflow to read, those a tree to copy
-  // — and a scratch copy is neither.
+  // written. It sits inside the env guard for its own reason, not the mutation
+  // section's: a scratch copy has no `.github/` to read, so an unguarded check
+  // would throw in every child and poison the red-set the harness reads back.
+  // (The mutation section is guarded so the recursion terminates — a different
+  // reason, stated where it belongs, below.)
   //
   // A line-level test, not a substring one: `includes(name)` over the raw file
   // passes for a commented-out step, which is the accident above. Step *order*
@@ -330,17 +327,17 @@ if (!process.env[CHILD_ENV]) {
     assert.deepEqual(red, ["R3"]);
   });
 
-  // Not a row of the contract's table: it pins the *heading* half of (H), which
-  // the table does not reach. The renamed-heading row above passes just as well
-  // against an `includes` heading match as against a `startsWith` one
-  // (`## [<v>-renamed]` contains neither), so nothing else here holds the
-  // anchor — and losing it is the silent direction. release.yml matches
-  // `^## \[`; a probe accepting an indented heading would report the metadata
-  // fine while the extraction it stands in for found no section at all.
+  // Not a row of the contract's table: it pins (H1), which the table does not
+  // reach. The renamed-heading row above passes just as well against an
+  // `includes` heading match as against a `startsWith` one (`## [<v>-renamed]`
+  // contains neither), so nothing else here holds the anchor — and losing it is
+  // the silent direction. release.yml matches `^## \[`; a probe accepting an
+  // indented heading would report the metadata fine while the extraction it
+  // stands in for found no section at all.
   //
-  // (H)'s terminator half stays unpinned, deliberately: a looser terminator can
-  // only end the body earlier, so the body check can only go green→red. That is
-  // the loud direction, per the note above the mutation section.
+  // (H2) stays unpinned, deliberately: a looser terminator can only end the body
+  // earlier, so the body check can only go green→red. That is the loud
+  // direction, per the note above the mutation section.
   check("mutation — a heading indented off line-start reddens R3 only", () => {
     const red = invariantsRedBy((dir) => {
       const { all, at } = scratchSection(dir);
