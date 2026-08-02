@@ -226,6 +226,14 @@ if (!process.env[CHILD_ENV]) {
     assert.deepEqual(unwiredIn("          node scripts/probe-y.mjs", one), one);
   });
 
+  // The anchor is `node scripts/${name}`, not bare `name` — item 27's finding
+  // was that nothing pinned that difference: a line that only names the probe
+  // (a step's `name:` field, a `paths:` filter) must still count as unwired.
+  check("unwiredIn does not treat a bare name mention as wiring", () => {
+    const one = ["probe-x.mjs"];
+    assert.deepEqual(unwiredIn("          name: probe-x.mjs check", one), one);
+  });
+
   const probeFile = fileURLToPath(import.meta.url);
   const metadataFiles = ["manifest.json", "package.json", "versions.json", "CHANGELOG.md"];
 

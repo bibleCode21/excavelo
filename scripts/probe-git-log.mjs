@@ -3173,6 +3173,16 @@ check("B18 — the base never confirms itself when it resolves to a remote ref",
   );
 });
 
+// The "B12 —" checks from here through the merge-parse one further down pin a
+// broader claim than git-log-landed-confirmation.md's own B12 text ("a
+// candidate naming the base ref itself is not confirmed and emits no section,
+// by any path") — that sentence is about a *candidate*, and the check above
+// (B12 — the base ref is never confirmed, by any path) is its only pin. These
+// test a *landing* (one whose own message or merge subject names the base)
+// never getting labelled with it — the rule git-log-base-named-merge.md /
+// git-log-base-guard-pinning.md state as `M1`. Kept under the same prefix for
+// the group's history, not because one contract's text covers all of them.
+
 /**
  * B12's path-1 arm — §Spec's "excluded from the predicate *entirely*", on the
  * one path that queries no git: an exclusion applied only where git is called
@@ -3874,7 +3884,7 @@ check("E1 — a merge parsing to the base's name renders as a nameless merge sec
   assert.ok(hasSubject(s.body, "some fork work"), "the landing rendered without its commits");
 });
 
-check("E2 — the same with no selection at all: the plain path, which has no hit filter to guard", () => {
+check("E2 — the same with no selection at all: the no-selection path, which has no hit filter to guard", () => {
   assert.equal(countOf(e2Out, "branch: main"), 0, `the base was named as a branch; got: ${e2Out}`);
   const s = section(e2Out, FORK_MERGE_HEADER);
   assert.ok(s, `the landing lost its section instead of losing its name; got: ${e2Out}`);
@@ -4006,6 +4016,13 @@ check("M1 — no header names the base as a branch, in any mode or window", () =
     ["display collision, pasted", collisionOut],
     ["base ref glob, two specs", globTwoSpecs],
   ]) {
+    // A `<threw: …>` output yields zero sections below, letting a fixture
+    // that starts throwing pass this check while contributing no assertions
+    // at all — item 22's finding. Asserted on the throw itself, not on
+    // `sections(out).length`: "pasted base spelling, no window" legitimately
+    // renders zero sections by design (E6's disappearance direction), so a
+    // bare length check would misfire on a correct, non-throwing result.
+    assert.ok(!out.startsWith("<threw:"), `${label}: threw instead of rendering: ${out}`);
     for (const header of sections(out).map((s) => s.header)) {
       // The `(landed <date>)` suffix is optional, not decorative: M1 covers
       // *both* header forms, and the name-confirmed one ends in that suffix
