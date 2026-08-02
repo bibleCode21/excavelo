@@ -210,7 +210,7 @@ if (!process.env[CHILD_ENV]) {
       unwired,
       [],
       `ci.yml never runs ${unwired.join(", ")} — a probe the workflow does not invoke is` +
-        ` checks that silently never run, the gap this contract closed for five of them`
+        ` checks that silently never run, the gap this contract closed for the four it had left out`
     );
   });
 
@@ -278,9 +278,9 @@ if (!process.env[CHILD_ENV]) {
   // The section to mutate, located by the same sectionOf R3 uses — one
   // definition of where a section begins and ends, not two that must be kept in
   // step. `end` is absolute here because splice() wants absolute indices, while
-  // sectionOf returns the body itself. If this ever finds the wrong lines the
-  // mutation misfires and its check goes red, which is the point: a mutation
-  // harness fails loud, it cannot rot quiet.
+  // sectionOf returns the body itself. Every row that locates its edit this way
+  // is therefore blind to a gutted boundary — the edit shifts with it — which is
+  // why the terminator has a row that does not come through here.
   const scratchSection = (dir) => {
     const all = fs.readFileSync(path.join(dir, "CHANGELOG.md"), "utf8").split("\n");
     const { headings, body } = sectionOf(all);
@@ -412,9 +412,10 @@ if (!process.env[CHILD_ENV]) {
   // by a human only if this variable leaked into a real shell — in which case
   // most of this file just vanished from an otherwise identical `all passed`. A
   // guard that drops checks quietly is the very thing this section exists to
-  // make impossible, so it says so. Named, not counted: a count here goes stale
-  // the moment a row is added, which is how it was already wrong once.
-  console.log(`  (skipped — ${CHILD_ENV} is set: the mutation table and the ci.yml wiring check)`);
+  // make impossible, so it says so. Neither counted nor enumerated: a count went
+  // stale the moment a row was added, and the enumeration that replaced it went
+  // stale one commit later. What is stable is where the boundary is.
+  console.log(`  (skipped — ${CHILD_ENV} is set: every check below the guard)`);
 }
 
 if (failures.length > 0) {
