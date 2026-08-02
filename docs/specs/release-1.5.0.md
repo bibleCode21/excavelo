@@ -1,6 +1,7 @@
 ---
-status: draft
+status: confirmed
 ceremony: trivial
+approved-commit: a0000bea578e7a67c3c6ff8cd0c3920edc39c74a
 ---
 # release-1.5.0
 
