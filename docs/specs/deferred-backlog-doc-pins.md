@@ -1,6 +1,7 @@
 ---
 status: confirmed
 ceremony: trivial
+approved-commit: c24b24213931181fa57039890dfc2b85bcc228da
 ---
 # Deferred-followups backlog: comment/test/doc pins with zero production-behavior change
 
