@@ -1,6 +1,7 @@
 ---
-status: draft
+status: confirmed
 ceremony: standard
+approved-commit: 0860dac05c7a273de11800d5d67dcd779e8dafa0
 ---
 # Release metadata is checked by something other than the person cutting the release
 
