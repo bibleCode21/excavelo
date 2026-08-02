@@ -22,8 +22,11 @@
  * non-whitespace character, because `awk 'NF{p=1} p'` leaves a whitespace-only
  * body at 0 bytes just as an absent one.
  *
- * No esbuild, no fixtures — this reads four files. No framework, same
- * convention as the other probes in this directory.
+ * No esbuild and no source bundling: this reads the three metadata files,
+ * CHANGELOG.md, and ci.yml, and lists scripts/. The mutation section below
+ * also builds scratch trees and spawns child processes, which is the same
+ * shape probe-git-log, probe-verify-chain and probe-transform-preservation
+ * already use. No framework, same convention as the rest of this directory.
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -73,49 +76,71 @@ check("R2 — versions.json maps this version to manifest.json's minAppVersion",
   );
 });
 
-// The heading and the terminator are both line-start tests, not line equality:
-// a real heading carries a date suffix. `## [` is the terminator release.yml
-// itself uses, so a *different* release's heading ends this one's section.
-const lines = read("CHANGELOG.md").split("\n");
-const headingIndexes = lines.reduce(
-  (acc, line, i) => (line.startsWith(`## [${version}]`) ? [...acc, i] : acc),
-  []
-);
+/**
+ * Where the current version's section starts and what its body is — one
+ * definition, used by R3 below and by the mutation harness further down, so
+ * the two cannot drift apart.
+ *
+ * Both tests are line-start, not line equality: a real heading carries a date
+ * suffix. `## [` is the terminator release.yml itself uses, so a *different*
+ * release's heading ends this section. The body starts *after* the heading,
+ * because release.yml's awk skips that line (`{p=1; next}`) — it is not part
+ * of what gets published. Slicing from the heading instead would break this in
+ * the opposite direction to the obvious guess: the terminator search would
+ * match the heading at index 0, leaving an empty body and a check that fails
+ * on every input.
+ */
+function sectionOf(allLines) {
+  const headings = allLines.reduce(
+    (acc, line, i) => (line.startsWith(`## [${version}]`) ? [...acc, i] : acc),
+    []
+  );
+  if (headings.length !== 1) return { headings, body: null };
+  const rest = allLines.slice(headings[0] + 1);
+  const end = rest.findIndex((line) => line.startsWith("## ["));
+  return { headings, body: end === -1 ? rest : rest.slice(0, end) };
+}
+
+const section = sectionOf(read("CHANGELOG.md").split("\n"));
 
 check("R3 — exactly one CHANGELOG heading names the current version", () => {
+  // Not a 0-byte claim: a *duplicate* of this same heading matches release.yml's
+  // first awk rule and is consumed by its `next`, so the terminator never sees
+  // it and the extraction comes out the usual length (measured). What two
+  // headings break is which one "the section" means — the awk silently answers
+  // "the first", and a reader editing the second would publish neither.
   assert.equal(
-    headingIndexes.length,
+    section.headings.length,
     1,
-    `expected one line starting \`## [${version}]\` in CHANGELOG.md, found ${headingIndexes.length}` +
-      ` — release.yml's extraction stops at the second \`## [\`, so none and two both yield 0 bytes`
+    `expected one line starting \`## [${version}]\` in CHANGELOG.md, found ${section.headings.length}` +
+      ` — none means release.yml extracts nothing; two means "the section" is ambiguous and the awk picks silently`
   );
 });
 
 check("R3 — that heading's section carries something to publish", () => {
-  assert.equal(headingIndexes.length, 1, "no single heading to read a section from");
-  // After the heading, not from it — because release.yml's awk skips the
-  // heading line (`{p=1; next}`), so it is not part of what gets published.
-  // Slicing from it would also break this check in the opposite direction to
-  // the obvious guess: the terminator search would match the heading at index
-  // 0, leaving an empty body and a check that fails on every input.
-  const rest = lines.slice(headingIndexes[0] + 1);
-  const end = rest.findIndex((line) => line.startsWith("## ["));
-  const body = end === -1 ? rest : rest.slice(0, end);
+  assert.notEqual(section.body, null, "no single heading to read a section from");
   assert.ok(
-    body.some((line) => /\S/.test(line)),
-    `the \`## [${version}]\` section is empty — release.yml would publish a release with no notes and still report success`
+    section.body.some((line) => /\S/.test(line)),
+    `the \`## [${version}]\` section is empty — release.yml's empty-notes guard would fail the release`
   );
 });
 
 // --- recall additions (test-author, per-commit leg) — the mutation table -----
 //
-// The four checks above all assert that HEAD is well-formed, so every one of
-// them survives this file's predicates being gutted. Swap `/\S/` for `!== ""`,
-// or slice *from* the heading instead of after it, and this probe still prints
-// `all passed` — while no longer catching the empty release body it exists to
-// catch. A checker whose only evidence is a green run on good input is
-// indistinguishable from a vacuous one, and this repository's own §Why is that
-// a silent failure deserves a mechanical guard.
+// The four checks above all assert that HEAD is well-formed, so predicates can
+// be gutted underneath them and they keep printing `all passed`. Swap `/\S/`
+// for `!== ""` and a whitespace-only section — which release.yml extracts to
+// 0 bytes exactly as an absent one — sails through; match the heading with
+// `includes` instead of `startsWith` and an indented heading does too. Either
+// way the file still says everything is fine while no longer catching the
+// empty release body it exists to catch. A checker whose only evidence is a
+// green run on good input is indistinguishable from a vacuous one, and this
+// repository's own §Why is that a silent failure deserves a mechanical guard.
+//
+// (Not every gutting is silent: slicing from the heading rather than after it
+// makes the body check fail on every input, per sectionOf's note above. Those
+// announce themselves. The two named above do not, which is what this section
+// is for.)
 //
 // The contract's mutation table (§Spec, acceptance criteria) is the oracle that
 // does distinguish them. It was demonstrated by hand once, on scratch copies,
@@ -142,27 +167,41 @@ if (!process.env[CHILD_ENV]) {
   // it leaves open is the one this unit was created to remove: ci.yml ran one
   // probe of five, so 241 of 423 checks never saw a push or a pull request,
   // silently, for as long as it took someone to notice. Adding a seventh probe
-  // reopens exactly that hole. This file is the only member of the contract's
-  // allowed-surface that can hold the check; the nearest precedent is
-  // probe-settings-tab.mjs:1086, which likewise parks a repo-level invariant in
-  // whichever probe stood closest.
+  // reopens exactly that hole, and so does commenting an existing line out to
+  // unblock a red build — the likelier accident of the two.
   //
-  // Step *order* is deliberately not asserted. The contract's "both between
-  // Lint and Build" would need this file to model the workflow's structure, and
-  // a second model of ci.yml living here is the drift that the "one parser, not
-  // two" invariant rules out for release.yml. Order is observed by the CI run.
-  check("every scripts/probe-*.mjs is named in ci.yml", () => {
-    const workflow = read(path.join(".github", "workflows", "ci.yml"));
+  // This is feature envy and knowingly so: nothing it touches is release
+  // metadata. It is here because this file is the only member of the contract's
+  // allowed-surface that can hold it, following probe-settings-tab.mjs:1086,
+  // which likewise parks a repo-level invariant in whichever probe stood
+  // closest. Its home is a probe about the workflow itself, if one is ever
+  // written. One residue is unavoidable from here: the guard lives inside the
+  // set it guards, so deleting this file also deletes the check that would have
+  // noticed. It is grouped with the mutation section only because both need a
+  // real workflow to read, which a scratch copy does not have.
+  //
+  // A line-level test, not a substring one: `includes(name)` over the raw file
+  // passes for a commented-out step, which is the accident above. Step *order*
+  // is still deliberately not asserted — the contract's "both between Lint and
+  // Build" would need this file to model the workflow's structure, and a second
+  // model of ci.yml living here is the drift the "one parser, not two"
+  // invariant rules out. Order is observed by the CI run.
+  check("every scripts/probe-*.mjs is run by an uncommented line in ci.yml", () => {
+    const live = read(path.join(".github", "workflows", "ci.yml"))
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("#"));
     const probes = fs
       .readdirSync(path.join(repoRoot, "scripts"))
       .filter((name) => name.startsWith("probe-") && name.endsWith(".mjs"))
       .sort();
     assert.notEqual(probes.length, 0, "found no probe scripts to look for");
-    const unwired = probes.filter((name) => !workflow.includes(name));
+    const unwired = probes.filter(
+      (name) => !live.some((line) => line.includes(`node scripts/${name}`))
+    );
     assert.deepEqual(
       unwired,
       [],
-      `ci.yml never runs ${unwired.join(", ")} — a probe absent from the workflow is` +
+      `ci.yml never runs ${unwired.join(", ")} — a probe the workflow does not invoke is` +
         ` checks that silently never run, the gap this contract closed for five of them`
     );
   });
@@ -216,15 +255,17 @@ if (!process.env[CHILD_ENV]) {
     edit(value);
     fs.writeFileSync(path.join(dir, name), JSON.stringify(value, null, "\t"));
   };
-  // The section to mutate, located the way release.yml locates it. If this ever
-  // finds the wrong lines the mutation misfires and its check goes red — which
-  // is the point: a mutation harness fails loud, it cannot rot quiet.
+  // The section to mutate, located by the same sectionOf R3 uses — one
+  // definition of where a section begins and ends, not two that must be kept in
+  // step. `end` is absolute here because splice() wants absolute indices, while
+  // sectionOf returns the body itself. If this ever finds the wrong lines the
+  // mutation misfires and its check goes red, which is the point: a mutation
+  // harness fails loud, it cannot rot quiet.
   const scratchSection = (dir) => {
     const all = fs.readFileSync(path.join(dir, "CHANGELOG.md"), "utf8").split("\n");
-    const at = all.findIndex((line) => line.startsWith(`## [${version}]`));
-    assert.notEqual(at, -1, "no heading to mutate in the scratch CHANGELOG.md");
-    const next = all.slice(at + 1).findIndex((line) => line.startsWith("## ["));
-    return { all, at, end: next === -1 ? all.length : at + 1 + next };
+    const { headings, body } = sectionOf(all);
+    assert.equal(headings.length, 1, "no single heading to mutate in the scratch CHANGELOG.md");
+    return { all, at: headings[0], end: headings[0] + 1 + body.length };
   };
   const writeChangelog = (dir, lines) =>
     fs.writeFileSync(path.join(dir, "CHANGELOG.md"), lines.join("\n"));
@@ -320,10 +361,11 @@ if (!process.env[CHILD_ENV]) {
 } else {
   // Reached on every scratch copy, whose stdout only the parent reads. Reached
   // by a human only if this variable leaked into a real shell — in which case
-  // nine checks just vanished from an otherwise identical `all passed`, and a
-  // guard that drops checks quietly is the very thing this section exists to
-  // make impossible.
-  console.log(`  (mutation checks skipped — ${CHILD_ENV} is set)`);
+  // ten checks just vanished from an otherwise identical `all passed`: the nine
+  // mutations and the ci.yml wiring check, which is guarded with them because a
+  // scratch copy has no workflow to read. A guard that drops checks quietly is
+  // the very thing this section exists to make impossible, so it says so.
+  console.log(`  (10 checks skipped — ${CHILD_ENV} is set: 9 mutations + the ci.yml wiring check)`);
 }
 
 if (failures.length > 0) {
