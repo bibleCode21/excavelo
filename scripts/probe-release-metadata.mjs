@@ -3,11 +3,13 @@
  * run with `node scripts/probe-release-metadata.mjs`.
  *
  * Per docs/specs/release-metadata-invariants.md. Three files carry a version
- * between them and nothing checked that they agree; the third failure is
- * silent, because .github/workflows/release.yml extracts release notes by
- * awk-matching `^## \[<tag>\]` and `gh release create --notes-file` publishes a
- * 0-byte extraction as an empty release body while the workflow reports
- * success.
+ * between them and nothing checked that they agree. The third failure *was*
+ * silent before this unit: .github/workflows/release.yml extracts release notes
+ * by awk-matching `^## \[<tag>\]`, and `gh release create --notes-file` publishes
+ * a 0-byte extraction as an empty release body while the workflow reports
+ * success. The same unit added a guard to that step, so today an empty
+ * extraction fails the release instead — this probe is the earlier of the two
+ * lines of defence, catching it on a push rather than on a tag.
  *
  * Everything here is phrased against manifest.json's *current* value, so a
  * release never has to come back and edit this file — the same reasoning
@@ -17,10 +19,13 @@
  * R3 deliberately does not reimplement release.yml's awk: release.yml keeps
  * sole ownership of how notes are extracted, and this asserts the condition
  * that extraction depends on. Two details are load-bearing and come from the
- * awk's own semantics — headings match at line start (a real heading carries a
- * date suffix, `## [1.5.0] - 2026-08-02`), and "not empty" means a line with a
- * non-whitespace character, because `awk 'NF{p=1} p'` leaves a whitespace-only
- * body at 0 bytes just as an absent one.
+ * awk's own semantics, stated once here and cited rather than restated below:
+ *
+ *   (H) Headings match at **line start** — a real one carries a date suffix,
+ *       `## [<version>] - <date>`, so this is a prefix test, never equality.
+ *   (W) "Not empty" means a line with a **non-whitespace character**: the trim
+ *       is `awk 'NF{p=1} p'`, and a whitespace-only line has `NF == 0`, so such
+ *       a body extracts to 0 bytes exactly as an absent one does.
  *
  * No esbuild and no source bundling: this reads the three metadata files,
  * CHANGELOG.md, and ci.yml, and lists scripts/. The mutation section below
@@ -104,16 +109,24 @@ function sectionOf(allLines) {
 const section = sectionOf(read("CHANGELOG.md").split("\n"));
 
 check("R3 — exactly one CHANGELOG heading names the current version", () => {
-  // Not a 0-byte claim: a *duplicate* of this same heading matches release.yml's
-  // first awk rule and is consumed by its `next`, so the terminator never sees
-  // it and the extraction comes out the usual length (measured). What two
-  // headings break is which one "the section" means — the awk silently answers
-  // "the first", and a reader editing the second would publish neither.
+  // What two headings do, measured rather than reasoned about — the previous two
+  // attempts at explaining this mechanism were both wrong. Against the real
+  // CHANGELOG.md, with release.yml's own awk: a duplicate placed immediately
+  // after the heading extracts the same notes as no duplicate at all, while one
+  // placed further down the same section extracts *more* — the second body is
+  // published too, merged into the first section's notes, with the duplicate
+  // heading line itself absent from them. (Stated as a relation, not as byte
+  // counts: an absolute figure here would go stale at the next release.)
+  //
+  // So a duplicate never empties the notes. It makes them wrong in the other
+  // direction: two sections silently become one under a single tag, and which
+  // outcome you get depends on where the duplicate sits. That is what "exactly
+  // one" prevents, and it is why this is a separate check from the body one.
   assert.equal(
     section.headings.length,
     1,
     `expected one line starting \`## [${version}]\` in CHANGELOG.md, found ${section.headings.length}` +
-      ` — none means release.yml extracts nothing; two means "the section" is ambiguous and the awk picks silently`
+      ` — none means release.yml extracts nothing; two means it may merge both sections into one release's notes`
   );
 });
 
@@ -129,9 +142,9 @@ check("R3 — that heading's section carries something to publish", () => {
 //
 // The four checks above all assert that HEAD is well-formed, so predicates can
 // be gutted underneath them and they keep printing `all passed`. Swap `/\S/`
-// for `!== ""` and a whitespace-only section — which release.yml extracts to
-// 0 bytes exactly as an absent one — sails through; match the heading with
-// `includes` instead of `startsWith` and an indented heading does too. Either
+// for `!== ""` and a whitespace-only section sails through (W); match the
+// heading with `includes` instead of `startsWith` and an indented one does
+// too (H). Either
 // way the file still says everything is fine while no longer catching the
 // empty release body it exists to catch. A checker whose only evidence is a
 // green run on good input is indistinguishable from a vacuous one, and this
@@ -175,10 +188,9 @@ if (!process.env[CHILD_ENV]) {
   // allowed-surface that can hold it, following probe-settings-tab.mjs:1086,
   // which likewise parks a repo-level invariant in whichever probe stood
   // closest. Its home is a probe about the workflow itself, if one is ever
-  // written. One residue is unavoidable from here: the guard lives inside the
-  // set it guards, so deleting this file also deletes the check that would have
-  // noticed. It is grouped with the mutation section only because both need a
-  // real workflow to read, which a scratch copy does not have.
+  // written. It sits inside the env guard with the mutation section because both
+  // need the real repository — this one a workflow to read, those a tree to copy
+  // — and a scratch copy is neither.
   //
   // A line-level test, not a substring one: `includes(name)` over the raw file
   // passes for a commented-out step, which is the accident above. Step *order*
@@ -186,6 +198,14 @@ if (!process.env[CHILD_ENV]) {
   // Build" would need this file to model the workflow's structure, and a second
   // model of ci.yml living here is the drift the "one parser, not two"
   // invariant rules out. Order is observed by the CI run.
+  //
+  // Two residues, both named rather than left to be discovered. The guard lives
+  // inside the set it guards, so deleting this file deletes the check that would
+  // have noticed. And a line test cannot see step-level YAML: `if: false` or
+  // `continue-on-error: true` on the step keeps every invocation uncommented and
+  // this check green, while the probes stop gating — the same accident by a
+  // different keystroke. Catching those needs the structural model this file
+  // refuses to build, so they belong to the workflow probe named above.
   check("every scripts/probe-*.mjs is run by an uncommented line in ci.yml", () => {
     const live = read(path.join(".github", "workflows", "ci.yml"))
       .split("\n")
@@ -310,14 +330,17 @@ if (!process.env[CHILD_ENV]) {
     assert.deepEqual(red, ["R3"]);
   });
 
-  // Not a row of the contract's table, but the §Spec sentence the table does
-  // not reach: "Both predicates match at line start." The renamed-heading row
-  // above passes just as well against a `includes` heading match as against a
-  // `startsWith` one (`## [<v>-renamed]` contains neither), so nothing else
-  // here pins the anchor — and losing it is the silent direction. release.yml
-  // matches `^## \[`; a probe that accepted an indented heading would report
-  // metadata fine while the extraction it stands in for found no section and
-  // published an empty body, which is the failure this unit exists to prevent.
+  // Not a row of the contract's table: it pins the *heading* half of (H), which
+  // the table does not reach. The renamed-heading row above passes just as well
+  // against an `includes` heading match as against a `startsWith` one
+  // (`## [<v>-renamed]` contains neither), so nothing else here holds the
+  // anchor — and losing it is the silent direction. release.yml matches
+  // `^## \[`; a probe accepting an indented heading would report the metadata
+  // fine while the extraction it stands in for found no section at all.
+  //
+  // (H)'s terminator half stays unpinned, deliberately: a looser terminator can
+  // only end the body earlier, so the body check can only go green→red. That is
+  // the loud direction, per the note above the mutation section.
   check("mutation — a heading indented off line-start reddens R3 only", () => {
     const red = invariantsRedBy((dir) => {
       const { all, at } = scratchSection(dir);
@@ -345,11 +368,9 @@ if (!process.env[CHILD_ENV]) {
     assert.deepEqual(red, ["R3"]);
   });
 
-  // The row that pins `/\S/` rather than `!== ""`: `awk 'NF{p=1} p'` gives a
-  // whitespace-only line NF == 0, so it extracts to 0 bytes exactly as an
-  // absent body does. An implementation testing for the empty string passes
-  // this input, which is why the mutation is tabulated separately from the one
-  // above.
+  // The row that pins `/\S/` rather than `!== ""` — per (W) in the header. An
+  // implementation testing for the empty string passes this input, which is why
+  // the mutation is tabulated separately from the one above.
   check("mutation — that body replaced with a whitespace-only line reddens R3 only", () => {
     const red = invariantsRedBy((dir) => {
       const { all, at, end } = scratchSection(dir);
