@@ -33,6 +33,17 @@ jobs:
       - name: Probe git-log
         run: node scripts/probe-git-log.mjs
 
+      # The other five, in one step: together they run in well under a minute,
+      # while probe-git-log takes minutes and earns its own step so a failure
+      # there is attributable at a glance.
+      - name: Probe the rest
+        run: |
+          node scripts/probe-settings-tab.mjs
+          node scripts/probe-templates.mjs
+          node scripts/probe-transform-preservation.mjs
+          node scripts/probe-verify-chain.mjs
+          node scripts/probe-release-metadata.mjs
+
       - name: Build
         run: pnpm build
 
