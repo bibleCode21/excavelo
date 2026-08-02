@@ -110,10 +110,8 @@ function sectionOf(allLines) {
 const section = sectionOf(read("CHANGELOG.md").split("\n"));
 
 check("R3 — exactly one CHANGELOG heading names the current version", () => {
-  // Two or more headings never empty the extraction (measured), so release.yml's
-  // empty-notes guard cannot catch this one — this check is the only thing that
-  // does. No account of *what* the awk publishes instead lives here: three were
-  // written and measurement refuted all three.
+  // No account of what the awk does with a second heading lives here: four were
+  // written and measurement refuted all four.
   assert.equal(
     section.headings.length,
     1,
@@ -329,15 +327,41 @@ if (!process.env[CHILD_ENV]) {
   // indented heading would report the metadata fine while the extraction it
   // stands in for found no section at all.
   //
-  // (H2) stays unpinned, deliberately: a looser terminator can only end the body
-  // earlier, so the body check can only go green→red. That is the loud
-  // direction, per the note above the mutation section.
+  // (H2) has its own row below — the tighter direction is silent, so arguing
+  // only about the looser one (which can end the body early and merely turn the
+  // check red) would have left the half that matters unpinned.
   check("mutation — a heading indented off line-start reddens R3 only", () => {
     const red = invariantsRedBy((dir) => {
       const { all, at } = scratchSection(dir);
       all[at] = ` ${all[at]}`;
       writeChangelog(dir, all);
     });
+    assert.deepEqual(red, ["R3"]);
+  });
+
+  // The row that pins (H2), and the only one that cannot be built by mutating
+  // the real CHANGELOG: every other row locates its edit through sectionOf, the
+  // very definition under test, so a gutted terminator shifts the edit to match
+  // and the two cancel out — measured, `startsWith("## [")` → `startsWith("### [")`
+  // leaves all of the other rows green. This one writes a whole CHANGELOG whose
+  // shape says what it means without reference to sectionOf: the current
+  // version's section is empty, the next one is not. A correct terminator ends
+  // the body at that next heading and reddens R3; a terminator that matches less
+  // runs the body to EOF and passes the check on somebody else's release notes,
+  // which is the silent direction (H1) and (W) are pinned against.
+  check("mutation — an empty section above a non-empty one reddens R3 only", () => {
+    const red = invariantsRedBy((dir) =>
+      writeChangelog(dir, [
+        "# Changelog",
+        "",
+        `## [${version}] - 2026-01-01`,
+        "",
+        "## [0.0.1] - 2000-01-01",
+        "",
+        "- an older release's notes, which are not this release's",
+        "",
+      ])
+    );
     assert.deepEqual(red, ["R3"]);
   });
 
