@@ -4309,7 +4309,7 @@ check("F5 — pasted-candidate mode is untouched: the base's ref spelling still 
  * the widened disjunct and must be rejected by it.
  *
  * Mutation-verified: dropping `l.parents.length >= 2` turns this check red and
- * leaves all 180 others green — the same reason F5 exists for the scoping.
+ * no other — the same reason F5 exists for the scoping.
  */
 const globFlattenedSubject = await tryLoad([
   `${writeBoundaryRepo} branches:feature/flattened since:2024-01-01T00:00:00Z`,
@@ -4331,13 +4331,16 @@ check("F6 — a glob matched only by a single-parent merge-shaped subject still 
  * any more and `selectedBranches` therefore comes back empty. Losing it turns
  * that input into `git.no-branches`.
  *
- * Nothing in this file exercised that arm in *glob* mode. A13 and B1 hold the
- * same disjunct from pasted mode, where the memo supplies the name and path 1 is
- * what puts it on the landing; in glob mode `names` is drawn from
- * `selectedBranches`, so with none selected path 1 cannot run and the landing's
- * own merge-parsed name is the only thing left that can match. That is the one
- * (glob × no selected branch × matched) cell the gate has, and it was the only
- * cell of the table with no check behind it.
+ * Nothing in this file exercised that arm in *glob* mode. A13 and B1 reach the
+ * same disjunct from pasted mode — A13 with a name the merge-parse write site
+ * set, B1 with one path 1 assigned — but pasted mode has no throw for them to
+ * observe: the gate reads `spec.branches && !matched`, so there the disjunct
+ * only decides selection against fall-through. In glob mode `names` is drawn
+ * from `selectedBranches`, so with none selected path 1 cannot run and the
+ * landing's own merge-parsed name is the only thing left that can match — and
+ * losing the disjunct there turns the input into an error instead. That is the
+ * one (glob × no selected branch × matched) cell the gate has, and it was the
+ * only cell of the table with no check behind it.
  *
  * buildDefaultWindowFixture already carries the shape and is reused unchanged:
  * `feature/deleted` is merged --no-ff at 2024-07-09 and its ref deleted straight
@@ -4346,8 +4349,8 @@ check("F6 — a glob matched only by a single-parent merge-shaped subject still 
  * last assertion able to tell a selection from a fall-through.
  *
  * Mutation-verified: scoping the disjunct to pasted mode (`!spec.branches &&
- * judged.some((l) => match(l.branch))`) turns this check red and leaves all 181
- * others green — the same reason F5 exists for the widened arm's scoping.
+ * judged.some((l) => match(l.branch))`) turns this check red and no other — the
+ * same reason F5 exists for the widened arm's scoping.
  */
 const globDeletedBranch = await tryLoad([`${win} branches:feature/deleted since:2024-01-01T00:00:00Z`]);
 
