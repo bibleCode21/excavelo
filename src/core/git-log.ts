@@ -1109,29 +1109,35 @@ export async function loadGitLog(specs: string[], memoText = ""): Promise<string
       // the merge-parse write site, so the widening asks about exactly the
       // landings that site could have named.
       //
-      // Scoped to `spec.branches`: pasted-candidate mode has no gate to relax
-      // and must stay byte-identical — a pasted `origin/main` against a
-      // base-naming merge falls through to the plain path, and E6 pins that.
+      // Scoped to glob mode: pasted-candidate mode has no gate to relax and
+      // must stay byte-identical — a pasted `origin/main` against a base-naming
+      // merge takes the no-selection path where the base's ref lost the display
+      // dedup, and F5 is the check that holds that. (Not E6: E6's fixture keeps
+      // the base as `{display:"main", ref:"origin/main"}`, so `selectBranches`
+      // selects it, the gate is never reached, and E6 pins the *selected* case.)
       //
-      // A closure, not a value: where a glob selected real branches neither
-      // caller reaches it, and `judged` is the uncapped first-parent history.
-      const anythingMatched = () =>
+      // Bound once rather than asked twice: the throw and the selection-mode
+      // decision are the same question, and `judged` is the uncapped
+      // first-parent history. `||` still short-circuits where a glob selected
+      // real branches, which is the case the scan is expensive in.
+      const matched =
+        selectedBranches.length > 0 ||
         judged.some((l) => match(l.branch)) ||
-        (spec.branches !== null &&
+        (!!spec.branches &&
           judged.some(
             (l) => l.branch === null && l.parents.length >= 2 && match(parseMergeBranchName(l.subject))
           ));
 
-      if (spec.branches && selectedBranches.length === 0 && !anythingMatched()) {
+      if (spec.branches && !matched) {
         throw new Error(t("git.no-branches", { glob: spec.branches, path: spec.path }));
       }
       // Whether this repository is in a selection mode still turns on whether
       // anything matched here — not on whether the predicate confirmed it —
       // so a memo whose only slash-tokens are file paths still falls through.
-      // Both sites take the widened question, or a spec that survived the throw
-      // would fall through to the no-selection path, dropping the `, branches
-      // <glob>` note and rendering the landings the glob does *not* match.
-      if (selectedBranches.length > 0 || anythingMatched()) hit = match;
+      // One binding serves both, or a spec that survived the throw would fall
+      // through to the no-selection path, dropping the `, branches <glob>` note
+      // and rendering the landings the glob does *not* match.
+      if (matched) hit = match;
     }
 
     const sections: string[] = [];
