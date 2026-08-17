@@ -1,6 +1,7 @@
 ---
 status: confirmed
 ceremony: trivial
+approved-commit: e48ea53b2ccc512d601f777250b73525335e16da
 ---
 # GitHub Actions: bump the four actions off the Node 20 runtime
 
