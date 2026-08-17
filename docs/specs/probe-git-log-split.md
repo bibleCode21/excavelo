@@ -1,7 +1,6 @@
 ---
 status: confirmed
 ceremony: standard
-approved-commit: 48f5cce4ff50403e0786caaf91dccf9a322e5958
 ---
 # probe-git-log structural split
 
@@ -13,22 +12,32 @@ approved-commit: 48f5cce4ff50403e0786caaf91dccf9a322e5958
   and its use stop living thousands of lines apart. Closes the last open bullet of
   deferred-followups item 17 (`probe 구조적 피로`), which prior units named a non-goal
   "sized for its own unit" (`git-log-comment-and-dead-code-cleanup.md` §Why).
-- **Non-goals**: no check is reordered, renamed, or reworded; no assertion body,
-  fixture body, or comment text is rewritten; no section header string changes; the
-  entry path `node scripts/probe-git-log.mjs` is unchanged — `ci.yml:34` and every
-  confirmed contract that runs the probe quote it verbatim; that is ten of the eleven
-  files `grep -rl "node scripts/probe-git-log.mjs" docs/specs/` returns, the eleventh
-  being this draft. Splitting
-  `fixtures.mjs` further, or dissolving the cross-module coupling, is out of scope: this
-  unit makes that coupling *visible* (an `import`), it does not remove it.
+- **Non-goals**: no check is reordered, renamed, or reworded, and no section header
+  string changes, in any commit. **In the move (commit 1)** no assertion body, fixture
+  body, or comment text is rewritten either — P4 states that as the invariant. Commits
+  2–4 are exactly the carve-outs: commit 2 edits one assertion's regex, commit 3 edits
+  two comments in other files, commit 4 adds a check to a different probe. Nothing else
+  is edited anywhere. The entry path `node scripts/probe-git-log.mjs` is unchanged —
+  `ci.yml:34` and every confirmed contract that runs the probe quote it verbatim; that
+  is ten of the eleven files `grep -rl "node scripts/probe-git-log.mjs" docs/specs/`
+  returns, the eleventh being this contract. Splitting `fixtures.mjs` further, or
+  dissolving the cross-module coupling, is out of scope: this unit makes that coupling
+  *visible* (an `import`), it does not remove it.
 
   Outside this contract, seven comments in six files name the probe in prose (five spell
   `probe-git-log.mjs`; `probe-release-metadata.mjs:36` and `ci.yml:37` drop the `.mjs`).
   **Five survive unchanged** and are left alone: `probe-settings-tab.mjs:9`,
-  `probe-transform-preservation.mjs:12`, `probe-verify-chain.mjs:7` and
-  `probe-release-metadata.mjs:36` cite it for the
-  *esbuild-bundle-against-an-`obsidian`-stub* convention, which the split does not
-  touch, and `ci.yml:37` names the probe without a path. **Two do not** —
+  `probe-transform-preservation.mjs:12` and `probe-verify-chain.mjs:7` cite it for the
+  *esbuild-bundle-against-an-`obsidian`-stub* convention;
+  `probe-release-metadata.mjs:36` cites it for a different one (the scratch-tree +
+  child-process shape — that file's own docblock says "No esbuild and no source
+  bundling" at `:33`); and `ci.yml:37` names the probe without a path. The `loadModule`
+  body that implements the bundling convention (`:87-114`) does move into `harness.mjs`,
+  so the distinction being drawn is explicit: a citation that names the probe for a
+  **practice it still follows** survives, while
+  one that names the file as the **home of a specific construct** does not. The former
+  stays true of the probe as a program; the latter sends a reader to a file where the
+  thing is not. **Two are of the latter kind** —
   `probe-transform-preservation.mjs:54` and `src/core/git-log.ts:1090`, each naming the
   probe file as the home of something the split moves out of it — and commit 3 fixes
   both.
@@ -52,7 +61,16 @@ approved-commit: 48f5cce4ff50403e0786caaf91dccf9a322e5958
      proved by `diff` against the captured baseline with those three figures
      normalized. Byte identity covers check count (182), check names, check order,
      section headers, and the `all passed` tail together; no weaker restatement is used.
-     Exit code 0, `182` `ok` lines, `0` `FAIL` lines.
+     Exit code 0, `182` `ok` lines, `0` `FAIL` lines. **The three normalized figures
+     carry their own threshold**, because each is asserted against a budget
+     (`assert.ok(elapsed < 1000)` at `:2567`, `:2590`, `:2626`): normalizing them away
+     would hide a regression that stays under that budget, and a split that let one
+     module's work overlap another's measurement window is exactly how that would
+     happen. Baseline is 207 / 107 / 293 ms. **Criterion 1 fails if any figure exceeds
+     1.5× its baseline (311 / 161 / 440 ms) or the 1000 ms budget itself.** 1.5× is
+     roughly three times the measured run-to-run noise on an unchanged tree
+     (+16% / −4% / −2%), so the rule separates a real regression from jitter without
+     making a loaded machine red.
   2. **Red path.** The split separates the failure accumulator (`failures`, harness) from
      the exit-code decision (entry) and from a *second, direct* push site
      (`probe-git-log.mjs:1390`, inside the `globCases` loop, which lands in
@@ -60,11 +78,20 @@ approved-commit: 48f5cce4ff50403e0786caaf91dccf9a322e5958
      sharing is invisible to criterion 1 — all-green stdout, exit 0. So the red path is
      measured separately, by two temporary mutations reverted before commit:
      - (a) make one existing check in `base-naming.mjs` throw → stdout carries its
-       `  FAIL <name>` line, the tail is `\n1 failed`, exit code is 1;
+       `  FAIL <name>` line, the tail is `\n1 failed`, exit code is 1, and **181 `ok`
+       lines remain** — the count is what separates "one check failed" from "the run
+       aborted", so it is observed, not just the tail;
      - (b) make one `globCases` entry in `selection-and-traversal.mjs` throw *through
-       the `:1390` push site* (not through `check`) → same three observations.
+       the `:1390` push site* (not through `check`) → same four observations;
+     - (c) **both at once** → `\n2 failed`, 180 `ok`, exit 1, with the `:1390` FAIL
+       printed before `base-naming`'s. (c) is the only pass that observes the two push
+       sites **aggregating into one array** — that is its contribution; the FAIL
+       ordering it also pins is a second reading of the order criterion 1 already
+       covers, taken here under mutation.
 
-     Both mutations are discarded; criterion 1's run is the committed state.
+     All three passes are measured against a pre-split baseline captured the same way,
+     so the comparison is before/after and not a reading of the code. The mutations are
+     discarded; criterion 1's run is the committed state.
   3. `node scripts/probe-release-metadata.mjs` stays green — its
      `every scripts/probe-*.mjs is run by an uncommented line in ci.yml` check does a
      **flat, non-recursive** `readdirSync("scripts")` filtered on `probe-` + `.mjs`, so
@@ -75,8 +102,11 @@ approved-commit: 48f5cce4ff50403e0786caaf91dccf9a322e5958
   4. Every module is cut on a boundary in the table below, and no check-bearing file
      exceeds 900 lines. `fixtures.mjs` is exempt: it is 21 independent builders with no
      control flow between them, and splitting it further is a non-goal above. If a
-     module would exceed the cap, the boundary moves and the table is amended — the cap
-     wins over the table, never the reverse.
+     module would exceed the cap, the cap wins and the boundary moves — which means
+     amending this table, and so voiding confirmation and re-running spec-review,
+     re-approval and the pin. That price is why the cap is 900 rather than snug: the
+     largest check-bearing range is `base-naming` at 823 lines, so the hatch is not
+     expected to open.
   5. The profile's `knowledge/review-scope.md` `## test-strategy` carries a clause
      naming the scope of its test-idiom sentence — *both* halves, "one self-contained
      script per subject" and "no shared helper module", since this split contradicts
@@ -115,7 +145,7 @@ each module needs its own subset (P4 licenses the added `import` lines).
 
 | file | source range | contents |
 |---|---|---|
-| `scripts/probe-git-log.mjs` (entry) | 1–31, 4366–4372 | module docblock, a new layout note, its own `import`s, ordered imports of the modules below, tmp cleanup, exit code |
+| `scripts/probe-git-log.mjs` (entry) | 1–31, 4366–4372 | module docblock, a new layout note, its own `import`s, the sequential `await import(...)` calls that run the modules below in order (P1), tmp cleanup, exit code |
 | `probe-git-log/harness.mjs` | 42–139, 1229–1266 | `tmp`, window polyfill, `MAX_BRANCHES`/`MAX_GLOB_LENGTH`, `failures`/`check`, `loadModule` and the bundled module's exports, `makeGit`, `at`, `sections`/`landedSections`/`section`/`hasSubject`/`countOf` |
 | `probe-git-log/fixtures.mjs` | 141–1228 | 21 of the 26 `build*Fixture` builders and the three constants declared beside them — `TABBED_SQUASH_SUBJECT` (fixture-private) plus `TABBED_MERGE_SUBJECT` and `HUGE_NAME_LENGTH`, which cross a boundary and so become exports under P2; the other five builders are the marker-spoofing fixtures, in that row |
 | `probe-git-log/selection-and-traversal.mjs` | 1268–1737 | `parseGitSpec`, `branchCandidates`, `expandHome`, `globMatch`, `selectBranches`, landing traversal (A1–A8), invariants (I1–I3); also `tryLoad`, which stays here beside the `matches` helper its comment names |
@@ -124,7 +154,7 @@ each module needs its own subset (P4 licenses the added `import` lines).
 | `probe-git-log/confirmation.mjs` | 2736–3541 | landed confirmation (B1–B16), panel regressions, landing record parsing, the spawn-layer predicate |
 | `probe-git-log/base-naming.mjs` | 3542–4364 | named window invariance (C1–C9), the write-boundary characterization, base-named merge parses (E1–E7), cap priority, the windowed-out path, path-1 renames, base-naming edges (F1–F7) |
 
-**Commits** — three, each with its own acceptance:
+**Commits** — four, each with its own acceptance:
 
 1. **The move.** Criteria 1–4. Its diff is moved lines, `import`/`export` statements,
    and one docblock per module; no moved line's content changes (P4).
@@ -150,12 +180,55 @@ each module needs its own subset (P4 licenses the added `import` lines).
    (`tsc -noEmit` + esbuild) stays clean, and `node scripts/probe-transform-preservation.mjs`
    stays green.
 
+4. **A durable guard for the failure mode the split creates.** Criterion 2 proves the
+   three modules share one `failures` array *in this diff*; nothing then stops a later
+   edit from giving a module its own accumulator and its own `check`, which would go
+   green, byte-identical, and silently unable to fail. `probe-release-metadata.mjs`
+   already owns this genre of assertion, so the guard goes there: across
+   `scripts/probe-git-log.mjs` and `scripts/probe-git-log/*.mjs` there is **exactly one**
+   `const failures = [` and **exactly one** `function check(`, and every file that calls
+   `check(` either declares it or imports it from `./harness.mjs`.
+
+   Two placement constraints, both read off that file rather than assumed. The check
+   reads the repo tree, so like the ci.yml wiring check at `:202` it must sit **inside
+   `if (!process.env[CHILD_ENV])`**: `invariantsRedBy` (`:245-253`) copies only the four
+   metadata files and the probe itself into its scratch tree, so an unguarded check
+   would throw in every child, and the caught FAIL would poison the red-set the mutation
+   rows read back. That in turn means it can never carry an `invariantsRedBy` row — the
+   harness only sees checks that run in the child — so its red proof follows the
+   **`unwiredIn` precedent** (`:197`, pinned at `:221`/`:232`) instead: the predicate is
+   a pure helper over a list of `(path, source)` pairs **returning which clause fired**,
+   pinned by a second check with synthetic input that needs no scratch tree. Acceptance:
+   that synthetic-input check pins **each of the three clauses with its own red** —
+   two sources each declaring `const failures = []`; two each declaring
+   `function check(`; and a source that calls `check(` while neither declaring it nor
+   importing it from `./harness.mjs` — plus a green on the real eight, and
+   `node scripts/probe-release-metadata.mjs` otherwise green. The third red is the one
+   that matters: a provenance clause with only a green pin is the easiest of the three
+   to write vacuously, which is the failure mode this commit exists to exclude.
+   `unwiredIn` carries a pin per direction (`:221`, `:232`) for the same reason.
+   Deliberately *not* done: wiring the criterion-2 mutation harness into CI — it costs
+   three more full probe runs (~5 min) per CI run to catch what this static check
+   catches in milliseconds, and the realistic mechanism is copy-paste, which is static.
+
 **Invariants**
 
-- **P1 — order is the contract.** Six of the eight rows are a single range; the ranges
-  keep their original relative order, and each module imports only from modules earlier
-  in that order, so the graph is acyclic and ESM's depth-first evaluation reproduces the
-  original top-to-bottom execution. Two rows are two ranges each, and each is
+- **P1 — order is the contract, and the entry imposes it.** The entry evaluates the
+  check modules with **sequential `await import(...)` calls, one per module, in table
+  order** — not a static `import` list. Static imports would not do: ESM starts sibling
+  modules in declaration order but a module that hits a top-level `await` yields, so a
+  later sibling runs while an earlier one is suspended. Measured on this machine — two
+  modules `a` (awaits 20ms) and `b` (awaits 5ms), imported statically in that order,
+  print `A1 B1 B2 A2`; behind `await import()` they print `A1 A2 B1 B2`. Every
+  check-bearing range here carries top-level `await`, and the dependency edges do not
+  rescue it: `marker-spoofing.mjs` is a leaf that nothing imports, and
+  `caps-and-windows.mjs` depends on `selection-and-traversal.mjs` rather than on it — so
+  under static imports nothing forces marker-spoofing's awaits to finish before
+  caps-and-windows starts printing. Sequential `await import()` makes the order total by
+  construction and independent of the dependency graph, which stays acyclic (each module
+  imports only from modules earlier in the table) so the cached module is already
+  evaluated whenever a later one names it. Six of the eight rows are a single range; two
+  rows are two ranges each, and each is
   order-neutral for its own reason: the **entry** (1–31 + 4366–4372) evaluates its body
   after every module it imports, which is where the teardown belongs anyway; the
   **harness** (42–139 + 1229–1266) hoists its second range — including the
@@ -186,7 +259,7 @@ each module needs its own subset (P4 licenses the added `import` lines).
   docblocks say something a reader could act on rather than merely locating content:
   `fixtures.mjs`'s, that a builder's "checks below" now means the check modules that
   import it, and the entry's, which must carry **both** sentences §Why commits it to —
-  that the import list is the execution order, and that the retained docblock's rules,
+  that the awaited import sequence is the execution order, and that the retained docblock's rules,
   the fixture-date window-boundary requirement above all, govern the modules it imports
   rather than the file they are written in. That second sentence is the mitigation the
   stale-positional-comment disposition rests on, so commit 1 is not done without it. No
@@ -198,6 +271,8 @@ each module needs its own subset (P4 licenses the added `import` lines).
   - `src/core/git-log.ts` — commit 3 only: the `F1` pointer comment at `:1090`, no code
   - `scripts/probe-transform-preservation.mjs` — commit 3 only: the polyfill pointer
     comment at `:54`, no code
+  - `scripts/probe-release-metadata.mjs` — commit 4 only: one added check (and its
+    mutation-table row, if the file's idiom calls for one)
 - refactor-scope:
   - `scripts/probe-git-log.mjs` in full — every line may move to a new file under
     `scripts/probe-git-log/`, and the `import`/`export` statements the split forces may
