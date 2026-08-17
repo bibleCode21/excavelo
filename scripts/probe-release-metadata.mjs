@@ -248,7 +248,7 @@ if (!process.env[CHILD_ENV]) {
   // be pinnable without a scratch tree, which is why it takes (path, source, wired) triples
   // and not a directory — the unwiredIn precedent above, for the same reason it gives.
   //
-  // Every clause reads `codeOf(src)`, never the raw source. A guard that reads raw text
+  // Every clause reads `withoutComments(src)`, never the raw source. A guard that reads raw text
   // cannot tell a call from prose mentioning one, nor a live import from a commented-out
   // one, and both mistakes were measured here: a `/* … */` around an `await import` read as
   // wiring, and the sentence "builders never call check()" in a docblock reddened the
@@ -266,24 +266,26 @@ if (!process.env[CHILD_ENV]) {
   // the guard itself. Every real comment in the eight files opens its own line; no glob
   // does, so anchoring separates them without a parser.
   //
-  // Residue, named rather than parsed around: a trailing `// …` after code on the same line
-  // survives, as does an `import { … }` hand-wrapped across lines (which would make its
-  // module read as an orphan). Neither happens here — the eight files put every import on
-  // one line and this repo runs no formatter over `scripts/` — and closing them means a JS
-  // parser, which is the "one parser, not two" line this file already refuses to cross.
-  const codeOf = (src) =>
+  // What it leaves, enumerated rather than parsed around: a `// …` or `/* … */` that starts
+  // *after* code on the same line, and an `import { … }` hand-wrapped across lines (which
+  // would make its module read as an orphan). None of the three occurs in the eight files —
+  // every comment there opens its own line and every import is on one line, and this repo
+  // runs no formatter over `scripts/` — and closing them means a JS parser, which is the
+  // "one parser, not two" line this file already refuses to cross. The name says what it
+  // does: it removes comments, it does not tokenize.
+  const withoutComments = (src) =>
     src.replace(/^[ \t]*\/\*[\s\S]*?\*\//gm, " ").replace(/^[ \t]*\/\/.*$/gm, "");
 
-  const wiredIn = (entrySrc, name) =>
-    codeOf(entrySrc).includes(`await import("./probe-git-log/${name}")`);
+  const entryImports = (entrySrc, name) =>
+    withoutComments(entrySrc).includes(`await import("./probe-git-log/${name}")`);
 
   const sharedHarnessBreaks = (files) => {
     const binds = (src, name) =>
-      new RegExp(`^(?:function|const|let|var) ${name}\\b`, "m").test(codeOf(src));
+      new RegExp(`^(?:function|const|let|var) ${name}\\b`, "m").test(withoutComments(src));
     // The *local* name, so `check as check2` does not count as bringing `check` into scope.
     const importedFromHarness = (src) => {
       const names = new Set();
-      for (const m of codeOf(src).matchAll(/^import \{([^}]*)\} from "\.[^"]*harness\.mjs";/gm)) {
+      for (const m of withoutComments(src).matchAll(/^import \{([^}]*)\} from "\.[^"]*harness\.mjs";/gm)) {
         for (const part of m[1].split(",")) names.add(part.trim().split(/\s+as\s+/).pop().trim());
       }
       return names;
@@ -291,7 +293,7 @@ if (!process.env[CHILD_ENV]) {
     // "Runs checks it did not define" — the shape both clauses below are about. A binder is
     // exempt without naming a file: harness.mjs matches only because it declares the runner,
     // and fixtures.mjs calls none.
-    const consumesCheck = (src) => /\bcheck\(/.test(codeOf(src)) && !binds(src, "check");
+    const consumesCheck = (src) => /\bcheck\(/.test(withoutComments(src)) && !binds(src, "check");
 
     const broken = [];
 
@@ -332,7 +334,7 @@ if (!process.env[CHILD_ENV]) {
         .readdirSync(path.join(repoRoot, dir))
         .filter((name) => name.endsWith(".mjs"))
         .sort()
-        .map((name) => [`${dir}/${name}`, read(path.join(dir, name)), wiredIn(entry, name)]),
+        .map((name) => [`${dir}/${name}`, read(path.join(dir, name)), entryImports(entry, name)]),
     ];
     // Three, not one: a listing of the entry alone reddens the two binding clauses on its
     // own, but the entry plus the harness passes every clause silently — every one of them
@@ -372,17 +374,17 @@ if (!process.env[CHILD_ENV]) {
   // entry — which has no commented-out import — the comment filter changes nothing, so the
   // check cannot pin its own predicate; synthetic input can, and needs no scratch tree.
   // This is the shape unwiredIn calls the likelier accident: a line commented out, not deleted.
-  // `codeOf` itself, which the six checks above cannot pin: their synthetic sources carry
+  // `withoutComments` itself, which the six checks above cannot pin: their synthetic sources carry
   // no comments at all, so every one of them stays green with the block strip deleted,
   // made greedy, or left unterminated — measured. That gap is how the unanchored version
   // shipped. Both directions get a red here: a comment must be removed, and code that
   // merely looks like one must not be.
-  check("codeOf strips a line-opening block comment and nothing else", () => {
+  check("withoutComments strips a line-opening block comment and nothing else", () => {
     const glob = 'const out = await tryLoad([`${repo} branches:feature/*`]);\ncheck("x", () => {});\n/**\n * next section\n */\n';
-    assert.match(codeOf(glob), /check\("x"/, "a glob's /* was read as a comment opener and swallowed real code");
-    assert.doesNotMatch(codeOf(glob), /next section/, "a line-opening block comment survived");
-    assert.doesNotMatch(codeOf("  /* await import(\"./probe-git-log/a.mjs\"); */\n"), /await import/);
-    assert.match(codeOf('const s = "a /* b */ c";\n'), /const s/, "an inline span took its own line with it");
+    assert.match(withoutComments(glob), /check\("x"/, "a glob's /* was read as a comment opener and swallowed real code");
+    assert.doesNotMatch(withoutComments(glob), /next section/, "a line-opening block comment survived");
+    assert.doesNotMatch(withoutComments("  /* await import(\"./probe-git-log/a.mjs\"); */\n"), /await import/);
+    assert.match(withoutComments('const s = "a /* b */ c";\n'), /const s/, "an inline span took its own line with it");
   });
 
   // The same shape end to end, since the check above tests the helper and not its use:
@@ -399,10 +401,10 @@ if (!process.env[CHILD_ENV]) {
   });
 
   check("a commented-out await import does not count as wiring", () => {
-    assert.equal(wiredIn('await import("./probe-git-log/a.mjs");', "a.mjs"), true);
-    assert.equal(wiredIn('// await import("./probe-git-log/a.mjs");', "a.mjs"), false);
-    assert.equal(wiredIn('  //  await import("./probe-git-log/a.mjs");', "a.mjs"), false);
-    assert.equal(wiredIn('await import("./probe-git-log/b.mjs");', "a.mjs"), false);
+    assert.equal(entryImports('await import("./probe-git-log/a.mjs");', "a.mjs"), true);
+    assert.equal(entryImports('// await import("./probe-git-log/a.mjs");', "a.mjs"), false);
+    assert.equal(entryImports('  //  await import("./probe-git-log/a.mjs");', "a.mjs"), false);
+    assert.equal(entryImports('await import("./probe-git-log/b.mjs");', "a.mjs"), false);
   });
 
   // The two shapes the declaration-spelling version let through, kept as their own check

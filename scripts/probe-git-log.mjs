@@ -43,10 +43,8 @@
  * requirement most of all: it binds wherever a fixture date and a boundary meet,
  * which is now every module under ./probe-git-log/. Positional wording in the
  * comments there ("above", "below", "this file") predates the split and was left
- * verbatim, so that the move could be proved by byte-identical output. Two were
- * rewritten instead of left: a claim that a global stub was safe because it ran
- * last, and one that pointed at a neighbour it no longer has. Each says so where
- * it stands.
+ * verbatim, so that the move could be proved by byte-identical output; a claim that
+ * had become unsafe rather than merely imprecise was rewritten where it stands.
  */
 import fs from "node:fs";
 

@@ -164,9 +164,6 @@ const { parseGitSpec, branchCandidates, expandHome, loadGitLog, buildPrompt, STA
  * other. `matches` in selection-and-traversal.mjs wraps the same throw to a
  * different shape — a boolean, rethrowing anything that is not git.no-branches —
  * because its checks ask whether a glob matched, not what was rendered.
- *
- * Reworded when this moved here: it used to open "Mirrors `matches` above", which
- * stopped being true of a file `matches` is no longer in.
  */
 const tryLoad = async (specs, memo) => {
   try {
