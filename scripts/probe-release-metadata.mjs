@@ -248,54 +248,64 @@ if (!process.env[CHILD_ENV]) {
   // be pinnable without a scratch tree, which is why it takes (path, source, wired) triples
   // and not a directory — the unwiredIn precedent above, for the same reason it gives.
   //
-  // The binding clauses match any spelling, not `function check(` alone: this codebase's
-  // dominant idiom is `const f = (…) => …`, so a module writing `const check = (n, f) => …`
-  // over its own accumulator is the *likely* accident, not an exotic one. Matching only the
-  // declared form let exactly that shape through — measured, before this was widened.
+  // Every clause reads `codeOf(src)`, never the raw source. A guard that reads raw text
+  // cannot tell a call from prose mentioning one, nor a live import from a commented-out
+  // one, and both mistakes were measured here: a `/* … */` around an `await import` read as
+  // wiring, and the sentence "builders never call check()" in a docblock reddened the
+  // wiring clause against the file it was describing. It is unwiredIn's own live-lines
+  // idea, one level up and with block comments included. Not merged with unwiredIn: that
+  // one strips YAML `#`, this one strips two JS comment forms, and one helper spanning
+  // both grammars would be a worse thing to read than the seven characters they share.
   //
-  // `wired` is the fourth clause and covers the other direction: a module can also be
-  // silenced by dropping one `await import(...)` line from the entry, which takes its whole
-  // section with it — measured at 182 ok -> 164 ok, tail `all passed`, exit 0, with nothing
-  // else in the repo noticing. It covers both spellings of that accident, a module added and
-  // never wired and one wired then unwired, because the caller enumerates the directory
-  // rather than the entry. The `>= 3` floor below is not part of that — it only catches a
-  // listing that came back empty, which would make every clause pass vacuously.
-  //
-  // `wired` is computed from the entry's *live* lines, for the same reason unwiredIn above
-  // filters comments and says so: commenting a line out to unblock a red run is the likelier
-  // accident of the two, and a raw substring test reads a commented import as wiring.
+  // Residue, named rather than parsed around: a trailing `// …` after code on the same line
+  // survives, as does an `import { … }` hand-wrapped across lines (which would make its
+  // module read as an orphan). Neither happens here — the eight files put every import on
+  // one line and this repo runs no formatter over `scripts/` — and closing them means a JS
+  // parser, which is the "one parser, not two" line this file already refuses to cross.
+  const codeOf = (src) => src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^[ \t]*\/\/.*$/gm, "");
+
   const wiredIn = (entrySrc, name) =>
-    entrySrc
-      .split("\n")
-      .filter((line) => !line.trim().startsWith("//"))
-      .some((line) => line.includes(`await import("./probe-git-log/${name}")`));
+    codeOf(entrySrc).includes(`await import("./probe-git-log/${name}")`);
 
   const sharedHarnessBreaks = (files) => {
     const binds = (src, name) => new RegExp(`^(?:function|const|let|var) ${name}\\b`, "m").test(src);
     // The *local* name, so `check as check2` does not count as bringing `check` into scope.
     const importedFromHarness = (src) => {
       const names = new Set();
-      for (const m of src.matchAll(/^import \{([^}]*)\} from "\.[^"]*harness\.mjs";/gm)) {
+      for (const m of codeOf(src).matchAll(/^import \{([^}]*)\} from "\.[^"]*harness\.mjs";/gm)) {
         for (const part of m[1].split(",")) names.add(part.trim().split(/\s+as\s+/).pop().trim());
       }
       return names;
     };
+    // "Runs checks it did not define" — the shape both clauses below are about. A binder is
+    // exempt without naming a file: harness.mjs matches only because it declares the runner,
+    // and fixtures.mjs calls none.
+    const consumesCheck = (src) => /\bcheck\(/.test(codeOf(src)) && !binds(src, "check");
+
     const broken = [];
+
+    // Clauses 1-2. Any binding spelling, not `function check(` alone: this codebase's
+    // dominant idiom is `const f = (…) => …`, so a module writing `const check = (n, f) => …`
+    // over its own accumulator is the likely accident, not an exotic one — and matching only
+    // the declared form let exactly that shape through, measured, before this was widened.
     for (const name of ["failures", "check"]) {
       const binders = files.filter(([, src]) => binds(src, name));
       if (binders.length !== 1) broken.push(`${name} bound in ${binders.length} files`);
     }
-    const orphans = files.filter(
-      ([, src]) => /\bcheck\(/.test(src) && !binds(src, "check") && !importedFromHarness(src).has("check")
-    );
+
+    // Clause 3. Provenance: a module that runs checks must get the runner from the harness,
+    // so its failures land in the one array the entry reads.
+    const orphans = files.filter(([, src]) => consumesCheck(src) && !importedFromHarness(src).has("check"));
     if (orphans.length > 0) {
       broken.push(`check called without binding or importing it in ${orphans.map(([p]) => p).join(", ")}`);
     }
-    // A binder is exempt without naming a file: harness.mjs matches `\bcheck\(` only because
-    // it declares the runner, and fixtures.mjs never calls one.
-    const unwired = files.filter(
-      ([, src, wired]) => /\bcheck\(/.test(src) && !binds(src, "check") && wired === false
-    );
+
+    // Clause 4, the other direction: a module can also be silenced by dropping one
+    // `await import(...)` line from the entry, which takes its whole section with it —
+    // measured at 182 ok -> 164 ok, tail `all passed`, exit 0, nothing else noticing. Both
+    // spellings of that accident are covered (added and never wired, wired then unwired),
+    // because the caller enumerates the directory rather than the entry.
+    const unwired = files.filter(([, src, wired]) => consumesCheck(src) && wired === false);
     if (unwired.length > 0) {
       broken.push(`checks never run — not imported by the entry: ${unwired.map(([p]) => p).join(", ")}`);
     }
@@ -313,6 +323,10 @@ if (!process.env[CHILD_ENV]) {
         .sort()
         .map((name) => [`${dir}/${name}`, read(path.join(dir, name)), wiredIn(entry, name)]),
     ];
+    // Three, not one: a listing of the entry alone reddens the two binding clauses on its
+    // own, but the entry plus the harness passes every clause silently — every one of them
+    // exempts the binder — so that is the degenerate listing this floor is for. Measured
+    // both: 1 file gives ["failures bound in 0 files", "check bound in 0 files"], 2 gives [].
     assert.ok(files.length >= 3, `expected the entry and its modules; got ${files.length}`);
     assert.deepEqual(
       sharedHarnessBreaks(files),
