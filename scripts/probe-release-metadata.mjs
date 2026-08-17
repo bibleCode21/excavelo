@@ -234,6 +234,71 @@ if (!process.env[CHILD_ENV]) {
     assert.deepEqual(unwiredIn("          name: probe-x.mjs check", one), one);
   });
 
+  // probe-git-log is the one subject split across files (an entry plus seven modules
+  // under scripts/probe-git-log/), so it is the one place a module could grow its own
+  // `failures` array and its own `check`. Nothing else here would notice: the run stays
+  // green and byte-identical while that module quietly loses the ability to fail, which
+  // is the opposite of what a probe is for. Same feature-envy note as the wiring check
+  // above — it belongs to a probe about the probes, if one is ever written — and it is
+  // inside the env guard for the same reason: a scratch copy has no scripts/probe-git-log/
+  // to read, so an unguarded check would throw in every child and poison the red-set.
+  //
+  // Returns which clause fired rather than a boolean, so one red discriminates. It has to
+  // be pinnable without a scratch tree, which is why it takes (path, source) pairs and not
+  // a directory — the unwiredIn precedent above, for the same reason it gives.
+  const sharedHarnessBreaks = (files) => {
+    const declaresFailures = (src) => /^const failures = \[/m.test(src);
+    const declaresCheck = (src) => /^function check\(/m.test(src);
+    const importsCheck = (src) => /^import \{[^}]*\bcheck\b[^}]*\} from "\.[^"]*harness\.mjs";/m.test(src);
+    const broken = [];
+    const failuresIn = files.filter(([, src]) => declaresFailures(src));
+    if (failuresIn.length !== 1) broken.push(`failures declared in ${failuresIn.length} files`);
+    const checkIn = files.filter(([, src]) => declaresCheck(src));
+    if (checkIn.length !== 1) broken.push(`check declared in ${checkIn.length} files`);
+    const orphans = files.filter(
+      ([, src]) => /\bcheck\(/.test(src) && !declaresCheck(src) && !importsCheck(src)
+    );
+    if (orphans.length > 0) {
+      broken.push(`check called without declaring or importing it in ${orphans.map(([p]) => p).join(", ")}`);
+    }
+    return broken;
+  };
+
+  check("the git-log probe's failure accumulator and check runner are shared, not per-module", () => {
+    const dir = path.join(repoRoot, "scripts", "probe-git-log");
+    const files = [
+      ["scripts/probe-git-log.mjs", read(path.join("scripts", "probe-git-log.mjs"))],
+      ...fs
+        .readdirSync(dir)
+        .filter((name) => name.endsWith(".mjs"))
+        .sort()
+        .map((name) => [`scripts/probe-git-log/${name}`, fs.readFileSync(path.join(dir, name), "utf8")]),
+    ];
+    assert.equal(files.length, 8, `expected the entry plus seven modules; got ${files.length}`);
+    assert.deepEqual(
+      sharedHarnessBreaks(files),
+      [],
+      "a module with its own accumulator or runner is green and byte-identical while unable to fail"
+    );
+  });
+
+  // Every clause gets its own red. A green-only pin would leave the provenance clause
+  // free to be written vacuously, which is the failure this whole guard exists to exclude.
+  check("sharedHarnessBreaks pins each of its three clauses", () => {
+    const harness = ["harness.mjs", "const failures = [];\nfunction check(name, fn) {}\n"];
+    const consumer = ["a.mjs", 'import { check } from "./harness.mjs";\ncheck("x", () => {});\n'];
+    assert.deepEqual(sharedHarnessBreaks([harness, consumer]), [], "the shared shape must be silent");
+    assert.deepEqual(sharedHarnessBreaks([harness, consumer, ["b.mjs", "const failures = [];\n"]]), [
+      "failures declared in 2 files",
+    ]);
+    assert.deepEqual(sharedHarnessBreaks([harness, consumer, ["b.mjs", "function check(name, fn) {}\n"]]), [
+      "check declared in 2 files",
+    ]);
+    assert.deepEqual(sharedHarnessBreaks([harness, consumer, ["b.mjs", 'check("x", () => {});\n']]), [
+      "check called without declaring or importing it in b.mjs",
+    ]);
+  });
+
   const probeFile = fileURLToPath(import.meta.url);
   const metadataFiles = ["manifest.json", "package.json", "versions.json", "CHANGELOG.md"];
 
