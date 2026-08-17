@@ -508,7 +508,7 @@ check("M1 — no header names the base as a branch, in any mode or window", () =
       // there rendering is windowed out and `namedSelected` is not. The anchor
       // itself stays: without it `branch: mainline` would trip this.
       assert.ok(
-        !/(?:^--- landed \S+ branch: |branch: )(?:main|origin\/main)(?: \(landed [^)]+\))?$/.test(
+        !/branch: (?:main|origin\/main)(?: \(landed [^)]+\))?$/.test(
           header
         ),
         `${label}: a header named the base as a branch: ${header}`
