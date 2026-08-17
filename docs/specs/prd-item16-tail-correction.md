@@ -1,6 +1,7 @@
 ---
 status: confirmed
 ceremony: trivial
+approved-commit: e1529f2cbc61924b8f10de6e9dc44575afe8847e
 ---
 # Correct the stale tail of `git-log-base-guard-pinning.md`'s allowed-surface qualifier
 
