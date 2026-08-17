@@ -1,6 +1,7 @@
 ---
 status: confirmed
 ceremony: standard
+approved-commit: bb135d0eb1ddcde788c5cf32c4b0f42e14f65b5f
 ---
 # probe-git-log structural split
 
