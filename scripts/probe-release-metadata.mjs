@@ -273,6 +273,13 @@ if (!process.env[CHILD_ENV]) {
   // runs no formatter over `scripts/` — and closing them means a JS parser, which is the
   // "one parser, not two" line this file already refuses to cross. The name says what it
   // does: it removes comments, it does not tokenize.
+  //
+  // Those three are the loud direction — leftover comment text only ever *adds* apparent
+  // `check(` calls and bindings, which makes a clause fire. The silent direction, the one
+  // the anchoring fixed, has one surface left: a line-opening `/*` inside a multi-line
+  // template literal would still open a span. No instance exists (globs occur mid-line as
+  // `feature/*`, never opening one), and it is the shape to check first if this ever hides
+  // a module again.
   const withoutComments = (src) =>
     src.replace(/^[ \t]*\/\*[\s\S]*?\*\//gm, " ").replace(/^[ \t]*\/\/.*$/gm, "");
 
@@ -317,7 +324,10 @@ if (!process.env[CHILD_ENV]) {
     // `await import(...)` line from the entry, which takes its whole section with it —
     // measured at 182 ok -> 164 ok, tail `all passed`, exit 0, nothing else noticing. Both
     // spellings of that accident are covered (added and never wired, wired then unwired),
-    // because the caller enumerates the directory rather than the entry.
+    // because the caller enumerates the directory rather than the entry. It asks about the
+    // entry only, so a module the *modules* import — harness.mjs, fixtures.mjs — would be
+    // reported unwired if it ever ran a check of its own. Neither does, and the report
+    // would be loud rather than silent, so it is left as a known false-positive edge.
     const unwired = files.filter(([, src, wired]) => consumesCheck(src) && wired === false);
     if (unwired.length > 0) {
       broken.push(`checks never run — not imported by the entry: ${unwired.map(([p]) => p).join(", ")}`);
@@ -374,11 +384,13 @@ if (!process.env[CHILD_ENV]) {
   // entry — which has no commented-out import — the comment filter changes nothing, so the
   // check cannot pin its own predicate; synthetic input can, and needs no scratch tree.
   // This is the shape unwiredIn calls the likelier accident: a line commented out, not deleted.
-  // `withoutComments` itself, which the six checks above cannot pin: their synthetic sources carry
-  // no comments at all, so every one of them stays green with the block strip deleted,
-  // made greedy, or left unterminated — measured. That gap is how the unanchored version
+  // `withoutComments` itself, which the checks above cannot pin: their synthetic sources
+  // carry no comments at all, so every one of them stays green with the block strip
+  // deleted or left unterminated — measured, and that gap is how the unanchored version
   // shipped. Both directions get a red here: a comment must be removed, and code that
-  // merely looks like one must not be.
+  // merely looks like one must not be. A *greedy* strip is the one mutation this does not
+  // catch; the real-file check above does instead, loudly — greedy swallows harness.mjs's
+  // own declarations, so the two binding clauses fire.
   check("withoutComments strips a line-opening block comment and nothing else", () => {
     const glob = 'const out = await tryLoad([`${repo} branches:feature/*`]);\ncheck("x", () => {});\n/**\n * next section\n */\n';
     assert.match(withoutComments(glob), /check\("x"/, "a glob's /* was read as a comment opener and swallowed real code");
