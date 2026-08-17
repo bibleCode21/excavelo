@@ -257,18 +257,29 @@ if (!process.env[CHILD_ENV]) {
   // one strips YAML `#`, this one strips two JS comment forms, and one helper spanning
   // both grammars would be a worse thing to read than the seven characters they share.
   //
+  // A block comment counts only when it *opens a line*. An unanchored `/*` is not safe
+  // here: `branches:feature/*` is the dominant fixture idiom in these files, so `/` + `*`
+  // occurs inside string literals, and an unanchored strip reads one as a comment opener
+  // and runs to the next docblock's `*/`. Measured when this was first written that way —
+  // it swallowed 298 lines of base-naming.mjs alone and hid 28 real `check(` calls from
+  // the clauses below, which is the silent failure this guard exists to catch, produced by
+  // the guard itself. Every real comment in the eight files opens its own line; no glob
+  // does, so anchoring separates them without a parser.
+  //
   // Residue, named rather than parsed around: a trailing `// …` after code on the same line
   // survives, as does an `import { … }` hand-wrapped across lines (which would make its
   // module read as an orphan). Neither happens here — the eight files put every import on
   // one line and this repo runs no formatter over `scripts/` — and closing them means a JS
   // parser, which is the "one parser, not two" line this file already refuses to cross.
-  const codeOf = (src) => src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^[ \t]*\/\/.*$/gm, "");
+  const codeOf = (src) =>
+    src.replace(/^[ \t]*\/\*[\s\S]*?\*\//gm, " ").replace(/^[ \t]*\/\/.*$/gm, "");
 
   const wiredIn = (entrySrc, name) =>
     codeOf(entrySrc).includes(`await import("./probe-git-log/${name}")`);
 
   const sharedHarnessBreaks = (files) => {
-    const binds = (src, name) => new RegExp(`^(?:function|const|let|var) ${name}\\b`, "m").test(src);
+    const binds = (src, name) =>
+      new RegExp(`^(?:function|const|let|var) ${name}\\b`, "m").test(codeOf(src));
     // The *local* name, so `check as check2` does not count as bringing `check` into scope.
     const importedFromHarness = (src) => {
       const names = new Set();
@@ -361,6 +372,32 @@ if (!process.env[CHILD_ENV]) {
   // entry — which has no commented-out import — the comment filter changes nothing, so the
   // check cannot pin its own predicate; synthetic input can, and needs no scratch tree.
   // This is the shape unwiredIn calls the likelier accident: a line commented out, not deleted.
+  // `codeOf` itself, which the six checks above cannot pin: their synthetic sources carry
+  // no comments at all, so every one of them stays green with the block strip deleted,
+  // made greedy, or left unterminated — measured. That gap is how the unanchored version
+  // shipped. Both directions get a red here: a comment must be removed, and code that
+  // merely looks like one must not be.
+  check("codeOf strips a line-opening block comment and nothing else", () => {
+    const glob = 'const out = await tryLoad([`${repo} branches:feature/*`]);\ncheck("x", () => {});\n/**\n * next section\n */\n';
+    assert.match(codeOf(glob), /check\("x"/, "a glob's /* was read as a comment opener and swallowed real code");
+    assert.doesNotMatch(codeOf(glob), /next section/, "a line-opening block comment survived");
+    assert.doesNotMatch(codeOf("  /* await import(\"./probe-git-log/a.mjs\"); */\n"), /await import/);
+    assert.match(codeOf('const s = "a /* b */ c";\n'), /const s/, "an inline span took its own line with it");
+  });
+
+  // The same shape end to end, since the check above tests the helper and not its use:
+  // a module whose only `check(` calls sit after a glob must still be seen to consume them.
+  check("a glob-bearing module still reads as consuming check", () => {
+    const globModule = [
+      "b.mjs",
+      'import { check } from "./harness.mjs";\nconst out = await tryLoad([`${repo} branches:feature/*`]);\ncheck("x", () => {});\n/**\n * trailer\n */\n',
+      false,
+    ];
+    assert.deepEqual(sharedHarnessBreaks([H, A, globModule]), [
+      "checks never run — not imported by the entry: b.mjs",
+    ]);
+  });
+
   check("a commented-out await import does not count as wiring", () => {
     assert.equal(wiredIn('await import("./probe-git-log/a.mjs");', "a.mjs"), true);
     assert.equal(wiredIn('// await import("./probe-git-log/a.mjs");', "a.mjs"), false);
