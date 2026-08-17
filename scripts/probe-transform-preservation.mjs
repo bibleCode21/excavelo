@@ -51,7 +51,7 @@ const repoRoot = path.resolve(fileURLToPath(import.meta.url), "..", "..");
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "probe-transform-preservation-"));
 
 // git-log.ts calls window.setTimeout/clearTimeout — real in Obsidian's
-// renderer, absent under plain Node (same polyfill as probe-git-log.mjs).
+// renderer, absent under plain Node (same polyfill as probe-git-log/harness.mjs).
 globalThis.window ??= { setTimeout, clearTimeout };
 
 const failures = [];

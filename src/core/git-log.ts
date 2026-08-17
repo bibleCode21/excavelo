@@ -1087,8 +1087,8 @@ export async function loadGitLog(specs: string[], memoText = ""): Promise<string
           // `main`, a pasted `upstream/main` clears namesBase and comes back out
           // of displayOf as the base's own name. Nothing downstream catches it:
           // namedSelected's read-side guard is gone, because this write site is
-          // what the reads now trust. F1 in scripts/probe-git-log.mjs is the
-          // check that holds it. displayOf stays inside this guard rather
+          // what the reads now trust. F1 in scripts/probe-git-log/base-naming.mjs
+          // is the check that holds it. displayOf stays inside this guard rather
           // than above it because the loop walks selectedBranches in glob mode —
           // hoisting the pair makes it quadratic in the branch count.
           const named = landingName(base, displayOf(name));

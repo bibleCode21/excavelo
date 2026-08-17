@@ -31,7 +31,8 @@
  *       a body extracts to 0 bytes exactly as an absent one does.
  *
  * No esbuild and no source bundling: this reads the three metadata files,
- * CHANGELOG.md, and ci.yml, and lists scripts/. The mutation section below
+ * CHANGELOG.md, ci.yml, and the probe-git-log entry and its modules as text, and
+ * lists scripts/ and scripts/probe-git-log/. The mutation section below
  * also builds scratch trees and spawns child processes, which is the same
  * shape probe-git-log, probe-verify-chain and probe-transform-preservation
  * already use. No framework, same convention as the rest of this directory.
@@ -232,6 +233,209 @@ if (!process.env[CHILD_ENV]) {
   check("unwiredIn does not treat a bare name mention as wiring", () => {
     const one = ["probe-x.mjs"];
     assert.deepEqual(unwiredIn("          name: probe-x.mjs check", one), one);
+  });
+
+  // probe-git-log is the one subject split across files (an entry over
+  // scripts/probe-git-log/), so it is the one place a module could grow its own
+  // `failures` array and its own `check`. Nothing else here would notice: the run stays
+  // green and byte-identical while that module quietly loses the ability to fail, which
+  // is the opposite of what a probe is for. Same feature-envy note as the wiring check
+  // above — it belongs to a probe about the probes, if one is ever written — and it is
+  // inside the env guard for the same reason: a scratch copy has no scripts/probe-git-log/
+  // to read, so an unguarded check would throw in every child and poison the red-set.
+  //
+  // Returns which clause fired rather than a boolean, so one red discriminates. It has to
+  // be pinnable without a scratch tree, which is why it takes (path, source, wired) triples
+  // and not a directory — the unwiredIn precedent above, for the same reason it gives.
+  //
+  // Every clause reads `withoutComments(src)`, never the raw source. A guard that reads raw text
+  // cannot tell a call from prose mentioning one, nor a live import from a commented-out
+  // one, and both mistakes were measured here: a `/* … */` around an `await import` read as
+  // wiring, and the sentence "builders never call check()" in a docblock reddened the
+  // wiring clause against the file it was describing. It is unwiredIn's own live-lines
+  // idea, one level up and with block comments included. Not merged with unwiredIn: that
+  // one strips YAML `#`, this one strips two JS comment forms, and one helper spanning
+  // both grammars would be a worse thing to read than the seven characters they share.
+  //
+  // A block comment counts only when it *opens a line*. An unanchored `/*` is not safe
+  // here: `branches:feature/*` is the dominant fixture idiom in these files, so `/` + `*`
+  // occurs inside string literals, and an unanchored strip reads one as a comment opener
+  // and runs to the next docblock's `*/`. Measured when this was first written that way —
+  // it swallowed 285 lines of base-naming.mjs alone and hid 28 real `check(` calls from
+  // the clauses below, which is the silent failure this guard exists to catch, produced by
+  // the guard itself. Every real comment in the eight files opens its own line; no glob
+  // does, so anchoring separates them without a parser.
+  //
+  // What it leaves, enumerated rather than parsed around: a `// …` or `/* … */` that starts
+  // *after* code on the same line, and an `import { … }` hand-wrapped across lines (which
+  // would make its module read as an orphan). One instance of the first exists —
+  // caps-and-windows.mjs's `separatedStarsOut = e.message; // git.no-branches is an
+  // acceptable outcome` — and it survives the strip harmlessly, carrying no `check(`, no
+  // import and no binding. The other two do not occur: every import in the eight files is
+  // on one line and this repo runs no formatter over `scripts/`. Closing any of them means
+  // a JS parser, which is the
+  // "one parser, not two" line this file already refuses to cross. The name says what it
+  // does: it removes comments, it does not tokenize.
+  //
+  // Those three are the loud direction — leftover comment text only ever *adds* apparent
+  // `check(` calls and bindings, which makes a clause fire. The silent direction, the one
+  // the anchoring fixed, has one surface left: a line-opening `/*` inside a multi-line
+  // template literal would still open a span. No instance exists (globs occur mid-line as
+  // `feature/*`, never opening one), and it is the shape to check first if this ever hides
+  // a module again.
+  const withoutComments = (src) =>
+    src.replace(/^[ \t]*\/\*[\s\S]*?\*\//gm, " ").replace(/^[ \t]*\/\/.*$/gm, "");
+
+  const entryImports = (entrySrc, name) =>
+    withoutComments(entrySrc).includes(`await import("./probe-git-log/${name}")`);
+
+  const sharedHarnessBreaks = (files) => {
+    const binds = (src, name) =>
+      new RegExp(`^(?:function|const|let|var) ${name}\\b`, "m").test(withoutComments(src));
+    // The *local* name, so `check as check2` does not count as bringing `check` into scope.
+    const importedFromHarness = (src) => {
+      const names = new Set();
+      for (const m of withoutComments(src).matchAll(/^import \{([^}]*)\} from "\.[^"]*harness\.mjs";/gm)) {
+        for (const part of m[1].split(",")) names.add(part.trim().split(/\s+as\s+/).pop().trim());
+      }
+      return names;
+    };
+    // "Runs checks it did not define" — the shape both clauses below are about. A binder is
+    // exempt without naming a file: harness.mjs matches only because it declares the runner,
+    // and fixtures.mjs calls none.
+    const consumesCheck = (src) => /\bcheck\(/.test(withoutComments(src)) && !binds(src, "check");
+
+    const broken = [];
+
+    // Clauses 1-2. Any top-level binding spelling, not `function check(` alone: this codebase's
+    // dominant idiom is `const f = (…) => …`, so a module writing `const check = (n, f) => …`
+    // over its own accumulator is the likely accident, not an exotic one — and matching only
+    // the declared form let exactly that shape through, measured, before this was widened.
+    for (const name of ["failures", "check"]) {
+      const binders = files.filter(([, src]) => binds(src, name));
+      if (binders.length !== 1) broken.push(`${name} bound in ${binders.length} files`);
+    }
+
+    // Clause 3. Provenance: a module that runs checks must get the runner from the harness,
+    // so its failures land in the one array the entry reads.
+    const orphans = files.filter(([, src]) => consumesCheck(src) && !importedFromHarness(src).has("check"));
+    if (orphans.length > 0) {
+      broken.push(`check called without binding or importing it in ${orphans.map(([p]) => p).join(", ")}`);
+    }
+
+    // Clause 4, the other direction: a module can also be silenced by dropping one
+    // `await import(...)` line from the entry, which takes its whole section with it —
+    // measured at 182 ok -> 164 ok, tail `all passed`, exit 0, nothing else noticing. Both
+    // spellings of that accident are covered (added and never wired, wired then unwired),
+    // because the caller enumerates the directory rather than the entry. It asks about the
+    // entry only, so a module the *modules* import — harness.mjs, fixtures.mjs — would be
+    // reported unwired if it ever ran a check of its own. Neither does, and the report
+    // would be loud rather than silent, so it is left as a known false-positive edge.
+    const unwired = files.filter(([, src, wired]) => consumesCheck(src) && wired === false);
+    if (unwired.length > 0) {
+      broken.push(`checks never run — not imported by the entry: ${unwired.map(([p]) => p).join(", ")}`);
+    }
+    return broken;
+  };
+
+  check("the git-log probe's failure accumulator and check runner are shared, not per-module", () => {
+    const dir = path.join("scripts", "probe-git-log");
+    const entry = read(path.join("scripts", "probe-git-log.mjs"));
+    const files = [
+      ["scripts/probe-git-log.mjs", entry, true],
+      ...fs
+        .readdirSync(path.join(repoRoot, dir))
+        .filter((name) => name.endsWith(".mjs"))
+        .sort()
+        .map((name) => [`${dir}/${name}`, read(path.join(dir, name)), entryImports(entry, name)]),
+    ];
+    // Three, not one: a listing of the entry alone reddens the two binding clauses on its
+    // own, but the entry plus the harness passes every clause silently — every one of them
+    // exempts the binder — so that is the degenerate listing this floor is for. Measured
+    // both: 1 file gives ["failures bound in 0 files", "check bound in 0 files"], 2 gives [].
+    assert.ok(files.length >= 3, `expected the entry and its modules; got ${files.length}`);
+    assert.deepEqual(
+      sharedHarnessBreaks(files),
+      [],
+      "a module with its own accumulator, or one the entry never imports, is green while unable to fail"
+    );
+  });
+
+  // Every clause gets its own red, including the two shapes that defeated the first
+  // version of this guard. A green-only pin would leave a clause free to be written
+  // vacuously, which is the failure this whole guard exists to exclude.
+  const H = ["harness.mjs", "const failures = [];\nfunction check(name, fn) {}\n", true];
+  const A = ["a.mjs", 'import { check } from "./harness.mjs";\ncheck("x", () => {});\n', true];
+
+  check("sharedHarnessBreaks pins each of its four clauses", () => {
+    assert.deepEqual(sharedHarnessBreaks([H, A]), [], "the shared shape must be silent");
+    assert.deepEqual(sharedHarnessBreaks([H, A, ["b.mjs", "const failures = [];\n", true]]), [
+      "failures bound in 2 files",
+    ]);
+    assert.deepEqual(sharedHarnessBreaks([H, A, ["b.mjs", "function check(name, fn) {}\n", true]]), [
+      "check bound in 2 files",
+    ]);
+    assert.deepEqual(sharedHarnessBreaks([H, A, ["b.mjs", 'check("x", () => {});\n', true]]), [
+      "check called without binding or importing it in b.mjs",
+    ]);
+    assert.deepEqual(sharedHarnessBreaks([H, A, ["b.mjs", 'import { check } from "./harness.mjs";\ncheck("x", () => {});\n', false]]), [
+      "checks never run — not imported by the entry: b.mjs",
+    ]);
+  });
+
+  // `withoutComments` itself, which the clause pins cannot reach: their synthetic sources
+  // carry no comments at all, so every one of them stays green with the block strip
+  // deleted or left unterminated — measured, and that gap is how the unanchored version
+  // shipped. Both directions get a red here: a comment must be removed, and code that
+  // merely looks like one must not be. A *greedy* strip is the one mutation this does not
+  // catch; the real-file check above does instead, loudly — greedy swallows harness.mjs's
+  // own declarations, so the two binding clauses fire.
+  check("withoutComments strips a line-opening block comment and nothing else", () => {
+    const glob = 'const out = await tryLoad([`${repo} branches:feature/*`]);\ncheck("x", () => {});\n/**\n * next section\n */\n';
+    assert.match(withoutComments(glob), /check\("x"/, "a glob's /* was read as a comment opener and swallowed real code");
+    assert.doesNotMatch(withoutComments(glob), /next section/, "a line-opening block comment survived");
+    assert.doesNotMatch(withoutComments("  /* await import(\"./probe-git-log/a.mjs\"); */\n"), /await import/);
+    assert.match(withoutComments('const s = "a /* b */ c";\n'), /const s/, "an inline span took its own line with it");
+  });
+
+  // The same shape end to end, since the check above tests the helper and not its use:
+  // a module whose only `check(` calls sit after a glob must still be seen to consume them.
+  check("a glob-bearing module still reads as consuming check", () => {
+    const globModule = [
+      "b.mjs",
+      'import { check } from "./harness.mjs";\nconst out = await tryLoad([`${repo} branches:feature/*`]);\ncheck("x", () => {});\n/**\n * trailer\n */\n',
+      false,
+    ];
+    assert.deepEqual(sharedHarnessBreaks([H, A, globModule]), [
+      "checks never run — not imported by the entry: b.mjs",
+    ]);
+  });
+
+  // The `wired` input itself, since the real check takes it pre-computed. Against the real
+  // entry — which has no commented-out import — the comment filter changes nothing, so that
+  // check cannot pin its own predicate; synthetic input can, and needs no scratch tree.
+  // This is the shape unwiredIn calls the likelier accident: a line commented out, not deleted.
+  check("a commented-out await import does not count as wiring", () => {
+    assert.equal(entryImports('await import("./probe-git-log/a.mjs");', "a.mjs"), true);
+    assert.equal(entryImports('// await import("./probe-git-log/a.mjs");', "a.mjs"), false);
+    assert.equal(entryImports('  //  await import("./probe-git-log/a.mjs");', "a.mjs"), false);
+    assert.equal(entryImports('await import("./probe-git-log/b.mjs");', "a.mjs"), false);
+  });
+
+  // The two shapes the declaration-spelling version let through, kept as their own check
+  // so a future narrowing of `binds` or `importedFromHarness` reddens here by name.
+  check("sharedHarnessBreaks catches an arrow-spelled runner and an aliased import", () => {
+    assert.deepEqual(sharedHarnessBreaks([H, A, ["b.mjs", "const check = (n, f) => {};\n", true]]), [
+      "check bound in 2 files",
+    ]);
+    assert.deepEqual(
+      sharedHarnessBreaks([
+        H,
+        A,
+        ["b.mjs", 'import { check as check2 } from "./harness.mjs";\nconst errs = [];\ncheck("x", () => {});\n', true],
+      ]),
+      ["check called without binding or importing it in b.mjs"]
+    );
   });
 
   const probeFile = fileURLToPath(import.meta.url);
