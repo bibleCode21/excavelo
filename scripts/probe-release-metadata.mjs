@@ -261,16 +261,19 @@ if (!process.env[CHILD_ENV]) {
   // here: `branches:feature/*` is the dominant fixture idiom in these files, so `/` + `*`
   // occurs inside string literals, and an unanchored strip reads one as a comment opener
   // and runs to the next docblock's `*/`. Measured when this was first written that way —
-  // it swallowed 298 lines of base-naming.mjs alone and hid 28 real `check(` calls from
+  // it swallowed 285 lines of base-naming.mjs alone and hid 28 real `check(` calls from
   // the clauses below, which is the silent failure this guard exists to catch, produced by
   // the guard itself. Every real comment in the eight files opens its own line; no glob
   // does, so anchoring separates them without a parser.
   //
   // What it leaves, enumerated rather than parsed around: a `// …` or `/* … */` that starts
   // *after* code on the same line, and an `import { … }` hand-wrapped across lines (which
-  // would make its module read as an orphan). None of the three occurs in the eight files —
-  // every comment there opens its own line and every import is on one line, and this repo
-  // runs no formatter over `scripts/` — and closing them means a JS parser, which is the
+  // would make its module read as an orphan). One instance of the first exists —
+  // caps-and-windows.mjs's `separatedStarsOut = e.message; // git.no-branches is an
+  // acceptable outcome` — and it survives the strip harmlessly, carrying no `check(`, no
+  // import and no binding. The other two do not occur: every import in the eight files is
+  // on one line and this repo runs no formatter over `scripts/`. Closing any of them means
+  // a JS parser, which is the
   // "one parser, not two" line this file already refuses to cross. The name says what it
   // does: it removes comments, it does not tokenize.
   //
@@ -304,7 +307,7 @@ if (!process.env[CHILD_ENV]) {
 
     const broken = [];
 
-    // Clauses 1-2. Any binding spelling, not `function check(` alone: this codebase's
+    // Clauses 1-2. Any top-level binding spelling, not `function check(` alone: this codebase's
     // dominant idiom is `const f = (…) => …`, so a module writing `const check = (n, f) => …`
     // over its own accumulator is the likely accident, not an exotic one — and matching only
     // the declared form let exactly that shape through, measured, before this was widened.
@@ -380,11 +383,7 @@ if (!process.env[CHILD_ENV]) {
     ]);
   });
 
-  // The `wired` input itself, since the check above takes it pre-computed. Against the real
-  // entry — which has no commented-out import — the comment filter changes nothing, so the
-  // check cannot pin its own predicate; synthetic input can, and needs no scratch tree.
-  // This is the shape unwiredIn calls the likelier accident: a line commented out, not deleted.
-  // `withoutComments` itself, which the checks above cannot pin: their synthetic sources
+  // `withoutComments` itself, which the clause pins cannot reach: their synthetic sources
   // carry no comments at all, so every one of them stays green with the block strip
   // deleted or left unterminated — measured, and that gap is how the unanchored version
   // shipped. Both directions get a red here: a comment must be removed, and code that
@@ -412,6 +411,10 @@ if (!process.env[CHILD_ENV]) {
     ]);
   });
 
+  // The `wired` input itself, since the real check takes it pre-computed. Against the real
+  // entry — which has no commented-out import — the comment filter changes nothing, so that
+  // check cannot pin its own predicate; synthetic input can, and needs no scratch tree.
+  // This is the shape unwiredIn calls the likelier accident: a line commented out, not deleted.
   check("a commented-out await import does not count as wiring", () => {
     assert.equal(entryImports('await import("./probe-git-log/a.mjs");', "a.mjs"), true);
     assert.equal(entryImports('// await import("./probe-git-log/a.mjs");', "a.mjs"), false);

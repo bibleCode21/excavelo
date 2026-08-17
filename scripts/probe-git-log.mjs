@@ -43,8 +43,10 @@
  * requirement most of all: it binds wherever a fixture date and a boundary meet,
  * which is now every module under ./probe-git-log/. Positional wording in the
  * comments there ("above", "below", "this file") predates the split and was left
- * verbatim, so that the move could be proved by byte-identical output; a claim that
- * had become unsafe rather than merely imprecise was rewritten where it stands.
+ * verbatim, so that the move could be proved by byte-identical output. The rule the
+ * tree follows: a positional claim was rewritten only where the move made it point
+ * somewhere else — a stale neighbour, or a safety argument resting on running last —
+ * and everything else stayed as written.
  */
 import fs from "node:fs";
 
