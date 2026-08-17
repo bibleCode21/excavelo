@@ -1,7 +1,8 @@
 /**
  * Shared probe machinery: the esbuild bundle of the modules under test, the
  * check runner and its failure list, the git and date helpers every fixture
- * builder uses, and the assertion helpers that read loadGitLog's output.
+ * builder uses, the assertion helpers that read loadGitLog's output, and the
+ * wrapper that turns one of its throws into output to assert against.
  *
  * Nothing here builds a fixture or asserts anything. It is the floor the rest
  * of this directory stands on, and the only module that imports none of it.
@@ -160,8 +161,9 @@ const { parseGitSpec, branchCandidates, expandHome, loadGitLog, buildPrompt, STA
  * A selection that drops to zero throws git.no-branches in glob mode. That has to
  * fail the check that asserted on the output, not crash the probe before the rest
  * of the run — so the throw is captured as output and asserted against like any
- * other. `matches` in selection-and-traversal.mjs wraps the same throw for the
- * cases that call loadGitLog directly.
+ * other. `matches` in selection-and-traversal.mjs wraps the same throw to a
+ * different shape — a boolean, rethrowing anything that is not git.no-branches —
+ * because its checks ask whether a glob matched, not what was rendered.
  */
 const tryLoad = async (specs, memo) => {
   try {

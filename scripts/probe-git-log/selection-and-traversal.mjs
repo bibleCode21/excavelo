@@ -5,7 +5,7 @@
  *
  * This module builds the main fixture (`repo`) that later modules keep
  * asserting against, so it exports it together with the handles derived from
- * it — `git`, `noSelection`, `WINDOW`, `MERGED_HEADER`, `hashesIn`.
+ * it — `noSelection`, `WINDOW`, `MERGED_HEADER`, `hashesIn`.
  */
 
 import assert from "node:assert/strict";
@@ -475,4 +475,4 @@ check("I3 — no commit appears under two landed sections", () => {
   }
 });
 
-export { MERGED_HEADER, WINDOW, git, hashesIn, noSelection, repo };
+export { MERGED_HEADER, WINDOW, hashesIn, noSelection, repo };

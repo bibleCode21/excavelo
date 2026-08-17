@@ -254,10 +254,22 @@ if (!process.env[CHILD_ENV]) {
   // declared form let exactly that shape through — measured, before this was widened.
   //
   // `wired` is the fourth clause and covers the other direction: a module can also be
-  // silenced by deleting one `await import(...)` line from the entry, which drops its whole
-  // section — measured at 182 ok -> 164 ok, tail `all passed`, exit 0, with nothing else in
-  // the repo noticing. The count check below catches a module added and left unwired; only
-  // this catches one already there and unwired since.
+  // silenced by dropping one `await import(...)` line from the entry, which takes its whole
+  // section with it — measured at 182 ok -> 164 ok, tail `all passed`, exit 0, with nothing
+  // else in the repo noticing. It covers both spellings of that accident, a module added and
+  // never wired and one wired then unwired, because the caller enumerates the directory
+  // rather than the entry. The `>= 3` floor below is not part of that — it only catches a
+  // listing that came back empty, which would make every clause pass vacuously.
+  //
+  // `wired` is computed from the entry's *live* lines, for the same reason unwiredIn above
+  // filters comments and says so: commenting a line out to unblock a red run is the likelier
+  // accident of the two, and a raw substring test reads a commented import as wiring.
+  const wiredIn = (entrySrc, name) =>
+    entrySrc
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("//"))
+      .some((line) => line.includes(`await import("./probe-git-log/${name}")`));
+
   const sharedHarnessBreaks = (files) => {
     const binds = (src, name) => new RegExp(`^(?:function|const|let|var) ${name}\\b`, "m").test(src);
     // The *local* name, so `check as check2` does not count as bringing `check` into scope.
@@ -279,7 +291,11 @@ if (!process.env[CHILD_ENV]) {
     if (orphans.length > 0) {
       broken.push(`check called without binding or importing it in ${orphans.map(([p]) => p).join(", ")}`);
     }
-    const unwired = files.filter(([, src, wired]) => /\bcheck\(/.test(src) && wired === false);
+    // A binder is exempt without naming a file: harness.mjs matches `\bcheck\(` only because
+    // it declares the runner, and fixtures.mjs never calls one.
+    const unwired = files.filter(
+      ([, src, wired]) => /\bcheck\(/.test(src) && !binds(src, "check") && wired === false
+    );
     if (unwired.length > 0) {
       broken.push(`checks never run — not imported by the entry: ${unwired.map(([p]) => p).join(", ")}`);
     }
@@ -295,11 +311,7 @@ if (!process.env[CHILD_ENV]) {
         .readdirSync(path.join(repoRoot, dir))
         .filter((name) => name.endsWith(".mjs"))
         .sort()
-        .map((name) => [
-          `${dir}/${name}`,
-          read(path.join(dir, name)),
-          entry.includes(`await import("./probe-git-log/${name}")`) || name === "harness.mjs" || name === "fixtures.mjs",
-        ]),
+        .map((name) => [`${dir}/${name}`, read(path.join(dir, name)), wiredIn(entry, name)]),
     ];
     assert.ok(files.length >= 3, `expected the entry and its modules; got ${files.length}`);
     assert.deepEqual(
@@ -329,6 +341,17 @@ if (!process.env[CHILD_ENV]) {
     assert.deepEqual(sharedHarnessBreaks([H, A, ["b.mjs", 'import { check } from "./harness.mjs";\ncheck("x", () => {});\n', false]]), [
       "checks never run — not imported by the entry: b.mjs",
     ]);
+  });
+
+  // The `wired` input itself, since the check above takes it pre-computed. Against the real
+  // entry — which has no commented-out import — the comment filter changes nothing, so the
+  // check cannot pin its own predicate; synthetic input can, and needs no scratch tree.
+  // This is the shape unwiredIn calls the likelier accident: a line commented out, not deleted.
+  check("a commented-out await import does not count as wiring", () => {
+    assert.equal(wiredIn('await import("./probe-git-log/a.mjs");', "a.mjs"), true);
+    assert.equal(wiredIn('// await import("./probe-git-log/a.mjs");', "a.mjs"), false);
+    assert.equal(wiredIn('  //  await import("./probe-git-log/a.mjs");', "a.mjs"), false);
+    assert.equal(wiredIn('await import("./probe-git-log/b.mjs");', "a.mjs"), false);
   });
 
   // The two shapes the declaration-spelling version let through, kept as their own check

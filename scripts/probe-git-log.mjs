@@ -43,7 +43,9 @@
  * requirement most of all: it binds wherever a fixture date and a boundary meet,
  * which is now every module under ./probe-git-log/. Positional wording in the
  * comments there ("above", "below", "this file") predates the split and was left
- * verbatim, so that the move could be proved by byte-identical output.
+ * verbatim, so that the move could be proved by byte-identical output — except
+ * where such a claim was load-bearing for safety rather than for navigation, which
+ * is corrected in place (confirmation.mjs's spawn stub is the one case).
  */
 import fs from "node:fs";
 
