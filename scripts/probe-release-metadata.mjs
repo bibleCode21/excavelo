@@ -31,7 +31,8 @@
  *       a body extracts to 0 bytes exactly as an absent one does.
  *
  * No esbuild and no source bundling: this reads the three metadata files,
- * CHANGELOG.md, and ci.yml, and lists scripts/. The mutation section below
+ * CHANGELOG.md, ci.yml, and the probe-git-log entry and its modules as text, and
+ * lists scripts/ and scripts/probe-git-log/. The mutation section below
  * also builds scratch trees and spawns child processes, which is the same
  * shape probe-git-log, probe-verify-chain and probe-transform-preservation
  * already use. No framework, same convention as the rest of this directory.
@@ -234,8 +235,8 @@ if (!process.env[CHILD_ENV]) {
     assert.deepEqual(unwiredIn("          name: probe-x.mjs check", one), one);
   });
 
-  // probe-git-log is the one subject split across files (an entry plus seven modules
-  // under scripts/probe-git-log/), so it is the one place a module could grow its own
+  // probe-git-log is the one subject split across files (an entry over
+  // scripts/probe-git-log/), so it is the one place a module could grow its own
   // `failures` array and its own `check`. Nothing else here would notice: the run stays
   // green and byte-identical while that module quietly loses the ability to fail, which
   // is the opposite of what a probe is for. Same feature-envy note as the wiring check
@@ -244,59 +245,106 @@ if (!process.env[CHILD_ENV]) {
   // to read, so an unguarded check would throw in every child and poison the red-set.
   //
   // Returns which clause fired rather than a boolean, so one red discriminates. It has to
-  // be pinnable without a scratch tree, which is why it takes (path, source) pairs and not
-  // a directory — the unwiredIn precedent above, for the same reason it gives.
+  // be pinnable without a scratch tree, which is why it takes (path, source, wired) triples
+  // and not a directory — the unwiredIn precedent above, for the same reason it gives.
+  //
+  // The binding clauses match any spelling, not `function check(` alone: this codebase's
+  // dominant idiom is `const f = (…) => …`, so a module writing `const check = (n, f) => …`
+  // over its own accumulator is the *likely* accident, not an exotic one. Matching only the
+  // declared form let exactly that shape through — measured, before this was widened.
+  //
+  // `wired` is the fourth clause and covers the other direction: a module can also be
+  // silenced by deleting one `await import(...)` line from the entry, which drops its whole
+  // section — measured at 182 ok -> 164 ok, tail `all passed`, exit 0, with nothing else in
+  // the repo noticing. The count check below catches a module added and left unwired; only
+  // this catches one already there and unwired since.
   const sharedHarnessBreaks = (files) => {
-    const declaresFailures = (src) => /^const failures = \[/m.test(src);
-    const declaresCheck = (src) => /^function check\(/m.test(src);
-    const importsCheck = (src) => /^import \{[^}]*\bcheck\b[^}]*\} from "\.[^"]*harness\.mjs";/m.test(src);
+    const binds = (src, name) => new RegExp(`^(?:function|const|let|var) ${name}\\b`, "m").test(src);
+    // The *local* name, so `check as check2` does not count as bringing `check` into scope.
+    const importedFromHarness = (src) => {
+      const names = new Set();
+      for (const m of src.matchAll(/^import \{([^}]*)\} from "\.[^"]*harness\.mjs";/gm)) {
+        for (const part of m[1].split(",")) names.add(part.trim().split(/\s+as\s+/).pop().trim());
+      }
+      return names;
+    };
     const broken = [];
-    const failuresIn = files.filter(([, src]) => declaresFailures(src));
-    if (failuresIn.length !== 1) broken.push(`failures declared in ${failuresIn.length} files`);
-    const checkIn = files.filter(([, src]) => declaresCheck(src));
-    if (checkIn.length !== 1) broken.push(`check declared in ${checkIn.length} files`);
+    for (const name of ["failures", "check"]) {
+      const binders = files.filter(([, src]) => binds(src, name));
+      if (binders.length !== 1) broken.push(`${name} bound in ${binders.length} files`);
+    }
     const orphans = files.filter(
-      ([, src]) => /\bcheck\(/.test(src) && !declaresCheck(src) && !importsCheck(src)
+      ([, src]) => /\bcheck\(/.test(src) && !binds(src, "check") && !importedFromHarness(src).has("check")
     );
     if (orphans.length > 0) {
-      broken.push(`check called without declaring or importing it in ${orphans.map(([p]) => p).join(", ")}`);
+      broken.push(`check called without binding or importing it in ${orphans.map(([p]) => p).join(", ")}`);
+    }
+    const unwired = files.filter(([, src, wired]) => /\bcheck\(/.test(src) && wired === false);
+    if (unwired.length > 0) {
+      broken.push(`checks never run — not imported by the entry: ${unwired.map(([p]) => p).join(", ")}`);
     }
     return broken;
   };
 
   check("the git-log probe's failure accumulator and check runner are shared, not per-module", () => {
-    const dir = path.join(repoRoot, "scripts", "probe-git-log");
+    const dir = path.join("scripts", "probe-git-log");
+    const entry = read(path.join("scripts", "probe-git-log.mjs"));
     const files = [
-      ["scripts/probe-git-log.mjs", read(path.join("scripts", "probe-git-log.mjs"))],
+      ["scripts/probe-git-log.mjs", entry, true],
       ...fs
-        .readdirSync(dir)
+        .readdirSync(path.join(repoRoot, dir))
         .filter((name) => name.endsWith(".mjs"))
         .sort()
-        .map((name) => [`scripts/probe-git-log/${name}`, fs.readFileSync(path.join(dir, name), "utf8")]),
+        .map((name) => [
+          `${dir}/${name}`,
+          read(path.join(dir, name)),
+          entry.includes(`await import("./probe-git-log/${name}")`) || name === "harness.mjs" || name === "fixtures.mjs",
+        ]),
     ];
-    assert.equal(files.length, 8, `expected the entry plus seven modules; got ${files.length}`);
+    assert.ok(files.length >= 3, `expected the entry and its modules; got ${files.length}`);
     assert.deepEqual(
       sharedHarnessBreaks(files),
       [],
-      "a module with its own accumulator or runner is green and byte-identical while unable to fail"
+      "a module with its own accumulator, or one the entry never imports, is green while unable to fail"
     );
   });
 
-  // Every clause gets its own red. A green-only pin would leave the provenance clause
-  // free to be written vacuously, which is the failure this whole guard exists to exclude.
-  check("sharedHarnessBreaks pins each of its three clauses", () => {
-    const harness = ["harness.mjs", "const failures = [];\nfunction check(name, fn) {}\n"];
-    const consumer = ["a.mjs", 'import { check } from "./harness.mjs";\ncheck("x", () => {});\n'];
-    assert.deepEqual(sharedHarnessBreaks([harness, consumer]), [], "the shared shape must be silent");
-    assert.deepEqual(sharedHarnessBreaks([harness, consumer, ["b.mjs", "const failures = [];\n"]]), [
-      "failures declared in 2 files",
+  // Every clause gets its own red, including the two shapes that defeated the first
+  // version of this guard. A green-only pin would leave a clause free to be written
+  // vacuously, which is the failure this whole guard exists to exclude.
+  const H = ["harness.mjs", "const failures = [];\nfunction check(name, fn) {}\n", true];
+  const A = ["a.mjs", 'import { check } from "./harness.mjs";\ncheck("x", () => {});\n', true];
+
+  check("sharedHarnessBreaks pins each of its four clauses", () => {
+    assert.deepEqual(sharedHarnessBreaks([H, A]), [], "the shared shape must be silent");
+    assert.deepEqual(sharedHarnessBreaks([H, A, ["b.mjs", "const failures = [];\n", true]]), [
+      "failures bound in 2 files",
     ]);
-    assert.deepEqual(sharedHarnessBreaks([harness, consumer, ["b.mjs", "function check(name, fn) {}\n"]]), [
-      "check declared in 2 files",
+    assert.deepEqual(sharedHarnessBreaks([H, A, ["b.mjs", "function check(name, fn) {}\n", true]]), [
+      "check bound in 2 files",
     ]);
-    assert.deepEqual(sharedHarnessBreaks([harness, consumer, ["b.mjs", 'check("x", () => {});\n']]), [
-      "check called without declaring or importing it in b.mjs",
+    assert.deepEqual(sharedHarnessBreaks([H, A, ["b.mjs", 'check("x", () => {});\n', true]]), [
+      "check called without binding or importing it in b.mjs",
     ]);
+    assert.deepEqual(sharedHarnessBreaks([H, A, ["b.mjs", 'import { check } from "./harness.mjs";\ncheck("x", () => {});\n', false]]), [
+      "checks never run — not imported by the entry: b.mjs",
+    ]);
+  });
+
+  // The two shapes the declaration-spelling version let through, kept as their own check
+  // so a future narrowing of `binds` or `importedFromHarness` reddens here by name.
+  check("sharedHarnessBreaks catches an arrow-spelled runner and an aliased import", () => {
+    assert.deepEqual(sharedHarnessBreaks([H, A, ["b.mjs", "const check = (n, f) => {};\n", true]]), [
+      "check bound in 2 files",
+    ]);
+    assert.deepEqual(
+      sharedHarnessBreaks([
+        H,
+        A,
+        ["b.mjs", 'import { check as check2 } from "./harness.mjs";\nconst errs = [];\ncheck("x", () => {});\n', true],
+      ]),
+      ["check called without binding or importing it in b.mjs"]
+    );
   });
 
   const probeFile = fileURLToPath(import.meta.url);

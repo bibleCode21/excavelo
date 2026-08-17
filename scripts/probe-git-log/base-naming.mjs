@@ -11,8 +11,8 @@ import path from "node:path";
 import { many, win } from "./caps-and-windows.mjs";
 import { confAncestor, confResolved, dualDisplayFirst, dualRefFirst, reportedBranchNames } from "./confirmation.mjs";
 import { buildBaseNamedMergeCrowdedFixture, buildBaseNamedMergeFixture, buildBaseRefGlobFixture, buildDisplayCollisionFixture, buildPathOneOnlyFixture, buildRemoteTrackingMergedFixture, buildUnpulledCloneFixture, buildWriteBoundaryFixture } from "./fixtures.mjs";
-import { MAX_BRANCHES, check, countOf, hasSubject, landedSections, section, sections, t } from "./harness.mjs";
-import { MERGED_HEADER, WINDOW, noSelection, repo, tryLoad } from "./selection-and-traversal.mjs";
+import { MAX_BRANCHES, check, countOf, hasSubject, landedSections, section, sections, t, tryLoad } from "./harness.mjs";
+import { MERGED_HEADER, WINDOW, noSelection, repo } from "./selection-and-traversal.mjs";
 
 /**
  * C1-C9 — git-log-named-window-invariance. A named confirmation (path 1's
@@ -508,9 +508,7 @@ check("M1 — no header names the base as a branch, in any mode or window", () =
       // there rendering is windowed out and `namedSelected` is not. The anchor
       // itself stays: without it `branch: mainline` would trip this.
       assert.ok(
-        !/branch: (?:main|origin\/main)(?: \(landed [^)]+\))?$/.test(
-          header
-        ),
+        !/branch: (?:main|origin\/main)(?: \(landed [^)]+\))?$/.test(header),
         `${label}: a header named the base as a branch: ${header}`
       );
     }

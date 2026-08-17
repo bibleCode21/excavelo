@@ -3,6 +3,12 @@
  * filter-before-cap order (A11), the scan cap's base exclusion, A16, the
  * default window's fall-through (A12), the glob matcher's backtracking bound
  * (A14) with its three measured timings, and the starter templates (A15).
+ *
+ * A9 and A15 touch neither a cap nor a window; they are here because the split
+ * follows the original section order, and moving them would reorder the output.
+ *
+ * Exports `many`, `manyOut` and `win` — the many-landings fixture and the two
+ * outputs confirmation.mjs and base-naming.mjs go on asserting against.
  */
 
 import assert from "node:assert/strict";

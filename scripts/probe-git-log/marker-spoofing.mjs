@@ -10,7 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { at, check, hasSubject, loadGitLog, makeGit, sections, tmp } from "./harness.mjs";
-import { hashesIn, repo } from "./selection-and-traversal.mjs";
+import { hashesIn } from "./selection-and-traversal.mjs";
 
 /**
  * Marker-spoofing guard (deferred-followups item 7). A commit's own

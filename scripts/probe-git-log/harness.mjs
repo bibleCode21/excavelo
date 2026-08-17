@@ -156,4 +156,19 @@ const countOf = (text, needle) => text.split(needle).length - 1;
 const mod = loadModule();
 const { parseGitSpec, branchCandidates, expandHome, loadGitLog, buildPrompt, STARTER_TEMPLATES, t } = mod;
 
-export { MAX_BRANCHES, MAX_GLOB_LENGTH, STARTER_TEMPLATES, at, branchCandidates, buildPrompt, check, countOf, expandHome, failures, hasSubject, landedSections, loadGitLog, makeGit, parseGitSpec, section, sections, t, tmp };
+/**
+ * A selection that drops to zero throws git.no-branches in glob mode. That has to
+ * fail the check that asserted on the output, not crash the probe before the rest
+ * of the run — so the throw is captured as output and asserted against like any
+ * other. `matches` in selection-and-traversal.mjs wraps the same throw for the
+ * cases that call loadGitLog directly.
+ */
+const tryLoad = async (specs, memo) => {
+  try {
+    return await loadGitLog(specs, memo);
+  } catch (e) {
+    return `<threw: ${e.message}>`;
+  }
+};
+
+export { MAX_BRANCHES, MAX_GLOB_LENGTH, STARTER_TEMPLATES, at, branchCandidates, buildPrompt, check, countOf, expandHome, failures, hasSubject, landedSections, loadGitLog, makeGit, parseGitSpec, section, sections, t, tmp, tryLoad };

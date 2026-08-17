@@ -2,6 +2,10 @@
  * Landed confirmation (B1-B16), the panel regressions on the window bound and
  * base identity, landing record parsing, and the spawn-layer rejection
  * predicate — everything asserted against the confirmation fixture family.
+ *
+ * Exports five handles base-naming.mjs asserts against — `confResolved`,
+ * `confAncestor`, `reportedBranchNames`, `dualDisplayFirst`, `dualRefFirst` —
+ * rather than have it rebuild the fixtures they come from.
  */
 
 import assert from "node:assert/strict";
@@ -10,8 +14,8 @@ import path from "node:path";
 
 import { manyOut } from "./caps-and-windows.mjs";
 import { TABBED_MERGE_SUBJECT, buildBrokenRefFixture, buildConfirmationFixture, buildDashRefFixture, buildDualNameFixture, buildMessageParsingFixture, buildRemoteBaseFixture } from "./fixtures.mjs";
-import { check, countOf, hasSubject, landedSections, makeGit, section, sections, t } from "./harness.mjs";
-import { hashesIn, tryLoad } from "./selection-and-traversal.mjs";
+import { check, countOf, hasSubject, landedSections, makeGit, section, sections, t, tryLoad } from "./harness.mjs";
+import { hashesIn } from "./selection-and-traversal.mjs";
 
 /**
  * B1-B16 — the landed predicate. Every landing in this fixture is
@@ -773,10 +777,12 @@ check("a tab inside a subject survives into the merge header intact", () => {
  *
  * This is the only stub in this file, and it earns the exception by being the
  * only shape a real git repository cannot produce — every other check here
- * builds a fixture and reads what git actually says. It is deliberately last:
- * every fixture above has finished its work, the patch fires only on the
- * predicate's own two queries (`--right-only`, `--is-ancestor`), and it is
- * restored in a finally so a failing assert still hands the real spawn back.
+ * builds a fixture and reads what git actually says. What keeps it safe is the
+ * restoration, not its position: it is last in this file, but base-naming.mjs
+ * runs after this module and builds eight more fixtures, so "everything above is
+ * done" is a claim about this file only. The patch fires on the predicate's own
+ * two queries (`--right-only`, `--is-ancestor`), and the `finally` below restores
+ * the real spawn before this module finishes — a failing assert included.
  * The probe's own git calls go through execFileSync, which this cannot touch.
  */
 console.log("the predicate maps a spawn-layer rejection onto git.failed");

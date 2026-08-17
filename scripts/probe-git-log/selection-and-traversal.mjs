@@ -5,7 +5,7 @@
  *
  * This module builds the main fixture (`repo`) that later modules keep
  * asserting against, so it exports it together with the handles derived from
- * it — `git`, `noSelection`, `WINDOW`, `MERGED_HEADER`, `hashesIn`, `tryLoad`.
+ * it — `git`, `noSelection`, `WINDOW`, `MERGED_HEADER`, `hashesIn`.
  */
 
 import assert from "node:assert/strict";
@@ -13,7 +13,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { buildFixture, buildRemoteTrackingFixture } from "./fixtures.mjs";
-import { branchCandidates, check, countOf, expandHome, failures, hasSubject, landedSections, loadGitLog, makeGit, parseGitSpec, section, sections, t } from "./harness.mjs";
+import { branchCandidates, check, countOf, expandHome, failures, hasSubject, landedSections, loadGitLog, makeGit, parseGitSpec, section, sections, t, tryLoad } from "./harness.mjs";
 
 console.log("parseGitSpec");
 
@@ -162,16 +162,6 @@ console.log("selectBranches: display vs ref divergence (remote-tracking branch)"
 
 const remoteRepo = buildRemoteTrackingFixture();
 const CONFIRMED_HEADER = "--- confirmed landed on main branch: feature/remote-only";
-// Mirrors `matches` above: a selection that drops to zero throws
-// git.no-branches in glob mode, which must fail the check, not crash the probe.
-const tryLoad = async (specs, memo) => {
-  try {
-    return await loadGitLog(specs, memo);
-  } catch (e) {
-    return `<threw: ${e.message}>`;
-  }
-};
-
 const remoteGlobRefOnly = await tryLoad([`${remoteRepo} since:2024-01-01T00:00:00Z branches:origin/feature/*`]);
 const remoteGlobDisplayOnly = await tryLoad([`${remoteRepo} since:2024-01-01T00:00:00Z branches:feature/remote-only`]);
 const remotePastedRefOnly = await tryLoad(
@@ -485,4 +475,4 @@ check("I3 — no commit appears under two landed sections", () => {
   }
 });
 
-export { MERGED_HEADER, WINDOW, git, hashesIn, noSelection, repo, tryLoad };
+export { MERGED_HEADER, WINDOW, git, hashesIn, noSelection, repo };
