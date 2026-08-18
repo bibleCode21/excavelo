@@ -1,7 +1,6 @@
 ---
 status: confirmed
 ceremony: standard
-approved-commit: 85492457346b22683aad87f7251832121d0239bb
 ---
 # `[!git]`: a marker literal split by an invisible byte is escaped, not passed through
 
@@ -44,9 +43,20 @@ approved-commit: 85492457346b22683aad87f7251832121d0239bb
   input carrying no invisible character (criterion 2), so there is nothing user-visible to
   describe.
 
-  **Character scope is C0 minus `\n` and `\t`, plus DEL and NEL — measured, not assumed.**
-  (§Spec's `invisible` set is the normative definition; this names it.) Zero-width and other
-  non-C0 invisibles are *not* covered: a U+200B payload does defeat the escape in the
+  **Two character scopes, both measured.** The bytes that vanish are C0 minus `\n` and
+  `\t`, plus DEL and NEL (§Spec's `invisible` set is the normative definition; this names
+  it). The characters that *look like the marker's own whitespace* are Unicode Zs plus
+  `\t` (§Spec's `space-like` set) — a marker literal is `--- `/`=== `, three leads and a
+  separator, and this file's own docblock states that indentation is tolerated on the
+  input side "because an LLM reads a slightly-indented line as the same sentinel". Both
+  slots therefore accept more than U+0020: measured, all eight of U+00A0, U+1680, U+2000,
+  U+2003, U+2007, U+202F, U+205F and U+3000 in the indentation slot, and U+00A0, U+3000
+  and `\t` in the separator slot, render a marker unescaped under the pre-existing rule.
+  This gap predates the unit — `[ \t]*` and a literal space had it too — but it is the
+  same threat with the same sink, so it is closed here rather than named and left open.
+
+  Zero-width and other non-C0 invisibles are *not* covered: a U+200B payload does defeat
+  the escape in the
   pipeline (verified), but 2/2 readers rejected it and both named the inserted character,
   one by codepoint. Widening on that evidence would be widening on speculation.
   **Accepted residual, with its confound stated**: these readers hold file-reading tools
@@ -56,6 +66,12 @@ approved-commit: 85492457346b22683aad87f7251832121d0239bb
   than NEL, bidi overrides, and soft hyphen are unmeasured and out of scope on the same
   rule; any of them reproducing later is a new unit, not a silent widening of this one.
 
+  **That residual's evidence does not extend to a Zs**, which is why Zs is in scope and
+  U+200B is not. U+200B was rejected because both readers *noticed* it — a mechanism that
+  needs an anomaly to spot. A Zs is not zero-width: it renders as ordinary whitespace, so
+  there is nothing anomalous to name, and the rejection evidence structurally cannot be
+  borrowed. Two characters that look alike to a reader are not alike to this argument.
+
   Also residual: all readers were Claude. Two of this plugin's three providers
   (`anthropic.ts`, `claude-code-cli.ts`) are Claude, so the measurement is on-target for
   those; `openai-compat.ts` is unmeasured.
@@ -63,18 +79,27 @@ approved-commit: 85492457346b22683aad87f7251832121d0239bb
 - **Success criteria**
   1. Wherever an **invisible** character (§Spec defines the set) is inserted into a
      would-be marker — between any two of its characters, between its last character and
-     its trailing space, or between the line start and its first character — the marker
-     renders escaped. This holds for `--- ` and `=== ` alike, and it holds when the line
-     itself starts at a **break** character rather than at `\n`, including when the same
-     character class supplies both.
-  2. For any text containing no **invisible** character, rendered output is byte-for-byte
-     identical to today's — measured over the full existing probe suite, not argued. (The
-     exclusion class here is `invisible`, not "C0/DEL": NEL, VT, FF and CR are invisible
-     by this contract's definition and inputs carrying them may legitimately change.)
+     its trailing separator, or between the line start and its first character — the
+     marker renders escaped. This holds for `--- ` and `=== ` alike, and it holds when the
+     line itself starts at a **break** character rather than at `\n`, including when the
+     same character class supplies both.
+  1a. A **space-like** character other than U+0020 standing in the marker's indentation or
+     as its separator does not defeat the escape either — the slot accepts the set, not
+     the one character. The measured floor is stated with criterion 2a, which owns the
+     population; §Why recounts the same measurement as motivation, not as its source.
+  2. For any text containing no **invisible** character and no **space-like** character
+     other than U+0020, rendered output is byte-for-byte identical to today's — measured
+     over the full existing probe suite, not argued. Both exclusions are this contract's
+     own sets, not ASCII categories: NEL, VT, FF and CR are invisible here, `\t` and every
+     Zs are space-like here, and inputs carrying any of them may legitimately change.
   3. Every invisible character still round-trips intact in rendered content: the fix
      inserts a backslash and never removes, replaces, or reorders a byte. D6 keeps passing
      unchanged, and for the same reason it passes today.
-  4. Every existing check in `scripts/probe-git-log.mjs` passes unchanged.
+  4. Every check green on the branch when this amendment was written stays green, with one
+     named exception: **D26** records that "no marker can form" at `confirmedHeader`'s
+     ref-name arm, and this amendment measured that premise false. D26 is retitled and its
+     record narrowed to the floor git does still enforce (no ASCII control, no U+0020),
+     beside the new assertion criterion 6 calls for. Every other check passes unchanged.
   5. Escaping stays linear in input length, and the probe observes that through the only
      seam it has. `escapeMarkerLines` is not exported, so the check measures `loadGitLog`
      end to end (as `A14` does) on a commit body of the dense boundary-class text
@@ -109,6 +134,13 @@ approved-commit: 85492457346b22683aad87f7251832121d0239bb
   stripping the offending characters would close the vector and break both. **D9–D11** are
   the second pin, and they are what keeps the `runLog` change narrow: the per-piece escape
   stays exactly as it is, and the rejoin pass is added on top of it, never in place of it.
+
+  **Re-baselined for the amendment**: the sentences above name what was pinned when the
+  first change was written. For the `space-like` work that remains, the pinned baseline is
+  **every check green on the branch** — D1–D30 and the seven unnumbered pre-D checks — with
+  D26 the one named exception (criterion 4). D1–D15 and the pre-D checks pin behaviour that
+  predates this unit; D16–D30 pin what criteria 1–8 installed, and they are preserved
+  behaviour now too.
   Preservation is therefore not "the suite still passes" but "no byte of rendered output
   changes except an inserted backslash".
 
@@ -119,6 +151,12 @@ approved-commit: 85492457346b22683aad87f7251832121d0239bb
   split-marker payloads — `\x01` among them — all rendered escaped through `loadGitLog`,
   and the out-of-scope U+200B payload correctly did not. The experiment was then reverted;
   it establishes that the criteria below are satisfiable, not that they are satisfied.
+
+  The `space-like` widening was measured the same way before this amendment was written:
+  all eleven cases close, every behaviour D1–D15 pins stays byte-identical, U+200B
+  stays open in both slots, and a 300k-input differential fuzz against the un-widened rule
+  found 242 differing inputs, **0** of them escaping less or mangling a byte — the widening
+  only ever escapes more, which is the direction that cannot cost a false negative.
 
 - **Refactor rationale**: two changes, both forced by the vector rather than by tidiness.
   `escapeMarkerLines` changes matching strategy — one regex pass
@@ -133,6 +171,18 @@ approved-commit: 85492457346b22683aad87f7251832121d0239bb
   escape, and the rejoin all stay, and D9–D11 pin why they must.
 
 ## §Spec
+
+> **Baseline of this amendment.** Criteria 1–8 below are **already implemented and pinned**
+> — `escapeMarkerLines` is the per-position scan, `runLog` carries the rejoin pass, and
+> **D16–D30** assert them, all green (D12–D15 characterize behaviour that predates the
+> unit; they are the safety net, not assertions of these criteria). Only `1a`, `2a`,
+> criterion 6's rewritten ref-name arm, and
+> criterion 8's benign-tab fixture are outstanding work. Where the amendment's own text says
+> "today", it means **the branch as it stands** (the scan is live); where a passage predates
+> the amendment — criterion 5's `182.0 / 186.9ms`, and criterion 7's "it fails against
+> today's code" — it means the pre-implementation `main`, and says so where it matters.
+> Call sites are named by symbol rather than line number: the implementation moved every
+> line this document originally cited.
 
 `escapeMarkerLines` keeps its signature and its output alphabet — text in, the same text
 with a backslash inserted before each marker occurrence, out. What changes is how an
@@ -154,7 +204,14 @@ occurrence is recognised.
   un-escape a marker today's code escapes, breaking this contract's byte-equality
   invariant.
 
-VT, FF, `\r` and NEL belong to **both** sets, and that is the point rather than a
+- **space-like** — reads as the marker's own whitespace: `\t` (U+0009), U+0020, and every
+  Unicode Zs character (U+00A0, U+1680, U+2000–U+200A, U+202F, U+205F, U+3000). U+200B is
+  **not** in this set: it is Cf, not Zs, and is the declared residual. This set is what the
+  indentation walk skips and what the separator after the three leads must be — both slots,
+  not one, since a marker whose trailing space is U+00A0 reads as a marker just as a
+  marker indented by U+00A0 does.
+
+VT, FF, `\r` and NEL belong to **both** of the first two sets, and that is the point rather than a
 contradiction: read forward they are invisible, read backward they end a line. A view-based
 strategy has to pick one role per character and therefore cannot cover the crossproduct;
 deciding per position costs nothing and covers it. LS and PS are `break` only — they
@@ -166,20 +223,25 @@ Let `i` be the position of a `-` or `=` — the **first visible character of the
 never an invisible character preceding it. A backslash is inserted at `i` when both hold:
 
 - **Forward** — reading from `i` and skipping **invisible** characters, the next three
-  visible characters are all `-` or all `=`, followed by a space.
-- **Backward** — walking left from `i` over spaces, tabs, and **invisible** characters,
+  visible characters are all `-` or all `=`, followed by a **space-like** character.
+- **Backward** — walking left from `i` over **space-like** and **invisible** characters,
   the walk reaches either the start of the text or a **break** character. A character in
-  both sets — VT, FF, `\r`, NEL — **ends the walk as a break and is never skipped as
-  invisible**: `break` is tested first. Without that precedence the walk would step over
-  the VT in `"tail" + VT + "=== "`, find no break, and drop an escape D2 pins today.
+  both the invisible and break sets — VT, FF, `\r`, NEL — **ends the walk as a break and is
+  never skipped as invisible**: `break` is tested first. Without that precedence the walk
+  would step over the VT in `"tail" + VT + "=== "`, find no break, and drop an escape D2
+  pins today. No character is in both `space-like` and `break`, so that walk needs no
+  second precedence rule.
 
 The backslash goes at `i`, which is where the current regex puts it — after any indentation
 and after any invisible character that precedes the literal, immediately before its first
 visible character. Recognition scans left to right and resumes after the literal it just
 took, so a literal is escaped exactly once and no match starts inside one already taken.
 
-Input containing no **invisible** character takes the existing regex path unchanged — the
-same code, the same cost.
+Input carrying no **invisible** character and no **space-like** character other than
+U+0020 takes the existing regex path unchanged — the same code, the same cost. The regex
+knows `[ \t]*` indentation and a literal-space separator only, so anything outside that
+must reach the scan or the two paths would disagree; `\t` routes to the scan for exactly
+that reason, even though the regex handles it correctly in the indentation slot.
 
 ### Acceptance criteria
 
@@ -197,10 +259,24 @@ Each is measured against a real fixture repository through `loadGitLog`, in
 2. The crossproduct renders escaped: a line opened by a **break** character whose marker
    also carries an invisible character inside it, including the case where both are the
    same character (`"tail" + VT + "=" + VT + "== "`).
-3. `\t` and `\n` inside a literal do **not** trigger an escape — the two exclusions in the
-   `invisible` definition are asserted, not merely documented.
-4. Every payload's invisible characters survive in the rendered output at their original
-   positions, asserted on the bytes rather than on the absence of a forged section.
+2a. Every **space-like** character other than U+0020 renders the marker escaped from both
+   slots — the set is sixteen Zs plus `\t`, and the criterion is over the set, not over a
+   sample. The measured **floor**, which the check must cover at minimum: as indentation,
+   U+00A0, U+1680, U+2000, U+2003, U+2007, U+202F, U+205F, U+3000; as separator, U+00A0,
+   U+3000 and `\t`. Those eleven are what was measured open on the pre-amendment rule; they
+   are a floor, not the population. U+200B in either slot must **not** be
+   escaped — the declared residual is asserted as a residual, so scope drift shows up as a
+   failing check rather than as silence.
+3. `\t` and `\n` **between the leads** do not trigger an escape — the two exclusions in the
+   `invisible` definition are asserted, not merely documented. `\t` is position-dependent
+   and that is deliberate: between the leads it advances the cursor, so `"=" + \t + "== "`
+   reads `= == ` and is no marker; in the separator slot it *is* the marker's whitespace,
+   so 2a requires it escaped. The two verdicts are about two positions, not a conflict.
+4. Every payload's planted characters — invisible **and** space-like alike — survive in the
+   rendered output at their original positions, asserted on the bytes rather than on the
+   absence of a forged section. For a space-like payload this includes where the backslash
+   lands: after the indentation, immediately before the first lead, exactly as Recognition
+   specifies and as D13 already pins for `\t` and U+0020.
 5. A marker whose line is opened by **LS or PS** renders escaped in text that also carries
    an invisible character elsewhere — the case that routes through the new recognition
    path while depending on the widest part of the `break` set. D1–D11 contain no LS/PS
@@ -216,18 +292,25 @@ Each is measured against a real fixture repository through `loadGitLog`, in
      arm instead, by criterion 7.
    - `loadConfirmedSections`' subject list likewise takes commit subjects.
    - `confirmedHeader` has **two** call sites and they are not alike:
-     - `git-log.ts:922` passes `branch.display`, a real ref name. `git check-ref-format`
-       rejects SOH, DEL and VT (measured), and it also rejects the space (measured) that
-       every marker literal must end with — so no marker can form here at all. The check
-       records this, it does not assert it.
-     - `git-log.ts:1212` passes `l.branch`, which `enumerateLandings` fills from
-       `parseMergeBranchName` over the merge subject (`:538`, `:462`) — attacker-controlled
-       text, not a ref name. This arm gets criterion 1's payload class **and** criterion
-       2's crossproduct, asserted escaped. Its fixture needs a landing whose body renders
-       empty, so `loadLandingSections` drops it and the name-confirmed path routes here.
+     - The `branch.display` site passes a real ref name. Before this amendment that arm was
+       recorded rather than asserted, because git rejects SOH, DEL, VT **and the space that
+       every marker literal then had to end with**. Widening the separator to `space-like`
+       deletes that premise, and the arm is now reachable: measured against git 2.50.1,
+       `refs/heads/x<U+2028>===<U+00A0>cafe777<U+00A0>2024-07-18<U+00A0>Victim` is
+       **accepted** — LS opens the line, U+00A0 is the separator, and the whole thing is a
+       forged record. (`refs/heads/x<U+2028>=== cafe777`, with a real space, is still
+       rejected — which is exactly why the old reasoning held before and fails now.) This
+       arm therefore gets an asserted `space-like` payload of its own, not a recording. The
+       floor git still enforces — no ASCII control, no U+0020 — is recorded beside it,
+       since it is what keeps criterion 1's payload class out of this arm.
+     - The `l.branch` site takes what `enumerateLandings` fills from `parseMergeBranchName`
+       over the merge subject — attacker-controlled text, not a ref name. This arm gets
+       criterion 1's payload class **and** criterion 2's crossproduct, asserted escaped. Its
+       fixture needs a landing whose body renders empty, so `loadLandingSections` drops it
+       and the name-confirmed path routes here.
 7. A marker literal split by a raw `\x01` inside a commit **body** renders escaped —
    `"=" + \x01 + "== cafe777 …"`, the Goal's own example. This is what the rejoin pass
-   exists for, and it fails against today's code, so it is also the criterion that proves
+   exists for, and it failed against pre-implementation `main`, so it is also the criterion that proves
    the change did something. D9–D11 keep passing alongside it, unchanged: their forged
    markers are already escaped per piece, and the rejoin pass does not double-escape them
    because a backslash halts the backward walk.
@@ -238,24 +321,35 @@ Each is measured against a real fixture repository through `loadGitLog`, in
    length and equal marker-character density, at 100k and 200k, asserting both the 1000ms
    ceiling and the 3× adversarial/benign bound stated there. Naming the shape is the point:
    a bound measured over a body that cannot trigger backtracking asserts nothing.
+8a. One more benign body at 200k, differing from criterion 8's only in that it carries a
+   `\t`. Widening the fast-path condition moved a large, ordinary class of input — every
+   commit body containing a tab — off the regex and onto the scan, and no other criterion
+   observes that class. The same 1000ms ceiling applies. This is coverage of a
+   reclassification, not a suspected blowup: the backward walk from any lead terminates at
+   the previous literal's own character, so the scan is expected to stay linear here.
 
 ### Invariants
 
 - Output differs from today's only by inserted backslashes. No byte is removed, replaced,
   or moved.
 - A recognised literal is escaped exactly once.
-- Input carrying no **invisible** character takes today's path, at today's cost.
+- Input carrying no **invisible** character and no **space-like** character other than
+  U+0020 takes today's path, at today's cost.
 
 - allowed-surface:
-  - `src/core/git-log.ts` — `escapeMarkerLines` and its docblock; `runLog`'s record
-    assembly, where the rejoined `rest` gains one `escapeMarkerLines` call; and the two
-    comments that change makes false — `runLog`'s docblock at `:629-631` ("hide behind a
-    raw `\x01` byte escapeMarkerLines does not treat as a line start" — it now does treat
-    it as one) and the pre-rejoin comment at `:651` ("Escape every field *before*
-    rejoining, never after" — it now also escapes after). Correcting them is part of this
-    change, not adjacent tidying: they state the negation of the new invariant, and the
-    reasoning they carry for the per-piece escape stays true and must survive the rewrite.
-    `runLog`'s split, its per-piece escaping, and every other function are unchanged.
+  - `src/core/git-log.ts` — `escapeMarkerLines` and its docblock, including the
+    `MARKER_LINE_RE` constant and the set predicates the scan is written in terms of;
+    `runLog`'s record assembly, where the rejoined `rest` gains one `escapeMarkerLines`
+    call; and every comment this change makes false. Three are known: `runLog`'s docblock
+    clause "hide behind a raw `\x01` byte escapeMarkerLines does not treat as a line start"
+    and the pre-rejoin comment "Escape every field *before* rejoining, never after" (both
+    corrected in the first implementation commit), and — new with the `space-like`
+    widening — `loadConfirmedSections`' comment that ref names are "already kept free of
+    spaces and control characters" by git's own rules, which stays true of U+0020 and the
+    ASCII controls and becomes false of Zs, LS and PS. Correcting these is part of the
+    change, not adjacent tidying: each states the negation of an invariant this contract
+    installs. `runLog`'s split, its per-piece escaping, and every other function are
+    unchanged.
   - `scripts/probe-git-log/marker-spoofing.mjs` — the new checks and their fixtures,
     continuing the existing D-series numbering
 - refactor-scope:
