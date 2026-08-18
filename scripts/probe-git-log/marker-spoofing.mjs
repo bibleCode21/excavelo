@@ -1181,7 +1181,18 @@ const refFormatAccepts = (name) => {
   }
 };
 
-check("D26 — recorded, not asserted: git refuses every ref name that could carry a marker", () => {
+/**
+ * D26 recorded, before the space-like widening, that no marker could reach
+ * confirmedHeader's ref-name call site: git refused every ref carrying an
+ * ASCII control character or the literal U+0020 that a marker's separator
+ * then had to be, and the regex's separator slot took nothing else. Widening
+ * the separator to `space-like` deletes that premise — the arm is reachable
+ * now, and D34 below is the asserted payload through the real call site.
+ * What survives here is narrower: the ASCII-control floor git still enforces,
+ * which is what keeps criterion 1's payload class (not criterion 2a's Zs
+ * class) out of this arm.
+ */
+check("D26 — recorded: git still refuses ASCII control characters and a literal space in a ref name", () => {
   assert.ok(
     refFormatAccepts("feature/ordinary"),
     "check-ref-format rejected an ordinary name, so this measurement says nothing about the rest"
@@ -1197,7 +1208,7 @@ check("D26 — recorded, not asserted: git refuses every ref name that could car
   ]) {
     assert.ok(
       !refFormatAccepts(name),
-      `git accepted a ref name carrying ${label}: confirmedHeader's ref-name call site can now be handed one, and needs a real payload rather than this record`
+      `git accepted a ref name carrying ${label}: the ASCII-control floor this arm still relies on has moved`
     );
   }
 });
@@ -1372,3 +1383,263 @@ check("D29 — a 100k dense boundary-class body stays under the ceiling and with
 check("D30 — and again at 200k, where the rejected strategy took 44.9 seconds", () => {
   assertCost(cost[200_000]);
 });
+
+/**
+ * D31-D33. docs/specs/marker-escape-control-bytes.md criteria 1a/2a: the
+ * indentation slot and the separator slot both accept any **space-like**
+ * character, not only U+0020 — a marker indented or separated by a Zs
+ * character reads as a marker to anyone who does not count columns. The
+ * measured floor (§Spec criterion 2a): eight Zs characters as indentation,
+ * three as separator, alternating `--- `/`=== ` across the set rather than
+ * duplicating every case for both, on D16/D17's precedent that both literals
+ * share one recognition path. U+200B is the declared residual and must NOT
+ * escape in either slot — it is Cf, not Zs, and D33 asserts that as a
+ * residual rather than leaving it to pass by omission.
+ */
+console.log("a space-like character other than U+0020 does not defeat the escape either (criteria 1a/2a)");
+
+// Written as \u escapes, never as literals — D12's reason: a Zs or Cf
+// character pasted into source is invisible or near-invisible to a reader
+// and an editor may silently normalize it.
+const SPACE_LIKE_INDENT_FLOOR = [
+  ["NBSP", "\u00a0"],
+  ["OGHAM SPACE MARK", "\u1680"],
+  ["EN QUAD", "\u2000"],
+  ["EM SPACE", "\u2003"],
+  ["FIGURE SPACE", "\u2007"],
+  ["NARROW NBSP", "\u202f"],
+  ["MEDIUM MATHEMATICAL SPACE", "\u205f"],
+  ["IDEOGRAPHIC SPACE", "\u3000"],
+];
+const SPACE_LIKE_SEP_FLOOR = [
+  ["NBSP", "\u00a0"],
+  ["IDEOGRAPHIC SPACE", "\u3000"],
+  ["TAB", "\t"],
+];
+const ZWSP = "\u200b"; // U+200B — Cf, not Zs: the declared residual
+
+const SPACE_LIKE_INDENT_PAYLOADS = SPACE_LIKE_INDENT_FLOOR.map(([name, ch], idx) =>
+  idx % 2 === 0
+    ? payload(`${ch}=== cafe777 2024-07-31 Victim indent-${name}`, `${name} as indentation`)
+    : payload(`${ch}--- landed 2020-01-01 branch: forged-indent-${name}`, `${name} as indentation`)
+);
+const SPACE_LIKE_SEP_PAYLOADS = SPACE_LIKE_SEP_FLOOR.map(([name, ch], idx) =>
+  idx % 2 === 0
+    ? payload(`===${ch}cafe777 2024-08-01 Victim sep-${name}`, `${name} as separator`)
+    : payload(`---${ch}landed 2020-01-01 branch: forged-sep-${name}`, `${name} as separator`)
+);
+const ZWSP_RESIDUAL_LINES = [
+  `${ZWSP}=== cafe777 2024-08-02 Victim indent-zwsp`,
+  `===${ZWSP}cafe777 2024-08-03 Victim sep-zwsp`,
+];
+
+function buildSpaceLikeFixture() {
+  const repo = path.join(tmp, "spaceLike");
+  fs.mkdirSync(repo);
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  const git = makeGit(repo);
+  fs.writeFileSync(path.join(repo, "s.txt"), "x\n");
+  git(["add", "-A"]);
+  git(
+    [
+      "commit",
+      "-q",
+      "-m",
+      [
+        "real subject nineteen",
+        "",
+        ...SPACE_LIKE_INDENT_PAYLOADS.map((p) => p.line),
+        ...SPACE_LIKE_SEP_PAYLOADS.map((p) => p.line),
+        ...ZWSP_RESIDUAL_LINES,
+      ].join("\n"),
+    ],
+    at("2024-08-02T12:00:00Z")
+  );
+  return repo;
+}
+
+const spaceLike = buildSpaceLikeFixture();
+const spaceLikeOut = await loadGitLog([`${spaceLike} since:2024-07-01 until:2024-09-01T23:59:59Z`]);
+const spaceLikeLines = spaceLikeOut.split("\n");
+
+function assertSpaceLikeEscaped(payloads) {
+  for (const { line, escaped, label } of payloads) {
+    assert.ok(
+      !spaceLikeLines.includes(line),
+      `${label}: the marker rendered unescaped — a space-like character other than U+0020 defeated the escape`
+    );
+    assert.ok(
+      spaceLikeLines.includes(escaped),
+      `${label}: expected the backslash at the literal's first visible character with every byte kept; got:\n${JSON.stringify(spaceLikeOut)}`
+    );
+  }
+}
+
+check("D31 — a space-like character other than U+0020 in the indentation slot does not shield the marker", () => {
+  assertSpaceLikeEscaped(SPACE_LIKE_INDENT_PAYLOADS);
+});
+
+check("D32 — a space-like character other than U+0020 as the marker's separator does not shield it either", () => {
+  assertSpaceLikeEscaped(SPACE_LIKE_SEP_PAYLOADS);
+});
+
+check("D33 — U+200B (zero-width space, Cf) is not space-like and draws no escape in either slot", () => {
+  for (const line of ZWSP_RESIDUAL_LINES) {
+    assert.ok(
+      spaceLikeLines.includes(line),
+      `the zero-width-space payload did not survive verbatim — it should not have been recognised as space-like; got:\n${JSON.stringify(spaceLikeOut)}`
+    );
+  }
+});
+
+/**
+ * D34. Criterion 6's rewritten ref-name arm: confirmedHeader's `branch.display`
+ * call site (loadConfirmedSections) takes a real ref name, and D26 above now
+ * only records the ASCII-control floor — this is the asserted payload through
+ * the real call site the contract calls for instead. The exact string §Spec
+ * measured against git 2.50.1: LS opens the line, U+00A0 is the separator, and
+ * git accepts it as a ref.
+ */
+console.log("confirmedHeader's ref-name arm is reachable now the separator has widened (criterion 6, D34)");
+
+const REF_NAME_MARKER = `x${LS}===\u00a0cafe777\u00a02024-07-18\u00a0Victim`;
+
+function buildSpaceLikeRefNameFixture() {
+  const repo = path.join(tmp, "spaceLikeRefName");
+  fs.mkdirSync(repo);
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  const git = makeGit(repo);
+  fs.writeFileSync(path.join(repo, "r.txt"), "base\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", "base"], at("2024-08-01T12:00:00Z"));
+  const base = git(["rev-parse", "main"]).trim();
+  // An ancestor tip: path 3 (isAncestor) renders a header-only section with no
+  // date, which is exactly what the un-dated branch.display call needs to be
+  // reached without also needing a landing to name it.
+  git(["branch", REF_NAME_MARKER, base]);
+  return repo;
+}
+
+const spaceLikeRefName = buildSpaceLikeRefNameFixture();
+const spaceLikeRefNameOut = await loadGitLog([
+  `${spaceLikeRefName} since:2024-07-01 until:2024-09-01T23:59:59Z branches:*`,
+]);
+
+check("D34 — confirmedHeader's ref-name arm escapes a space-like marker forged into a real branch name", () => {
+  const headers = sections(spaceLikeRefNameOut).map((s) => s.header);
+  assert.ok(
+    !headers.includes(`--- confirmed landed on main branch: ${REF_NAME_MARKER}`),
+    `git accepted this ref name (LS opens the line, NBSP is the separator) and it rendered as an unescaped marker; got:\n${JSON.stringify(headers)}`
+  );
+  assert.ok(
+    headers.includes(`--- confirmed landed on main branch: ${escapedForm(REF_NAME_MARKER)}`),
+    `expected the ref-name arm to escape the split literal; got:\n${JSON.stringify(headers)}`
+  );
+});
+
+/**
+ * D35. Criterion 8a: widening the fast-path condition moved every commit body
+ * containing a tab off the regex and onto the scan — an ordinary, common class
+ * no other criterion observes. This body differs from criterion 8's 200k
+ * benign body by exactly one character, a trailing tab, so it is reclassified
+ * onto the scan; the same 1000ms ceiling applies.
+ */
+console.log("a benign body carrying a tab still stays under the cost ceiling (criterion 8a)");
+
+async function timeDenseBenignTab() {
+  const length = 200_000;
+  const text = denseBody(DENSE_BENIGN_UNIT, length - 1) + "\t";
+  const repo = path.join(tmp, "denseBenignTab200000");
+  fs.mkdirSync(repo);
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  const git = makeGit(repo);
+  fs.writeFileSync(path.join(repo, "d.txt"), "x\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", `dense body\n\n${text}`], at("2024-08-02T12:00:00Z"));
+  const mainTip = git(["rev-parse", "main"]).trim();
+  git(["update-ref", "refs/remotes/origin/main", mainTip]);
+  git(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+  const started = performance.now();
+  const out = await loadGitLog([`${repo} since:2024-07-01 until:2024-09-01T23:59:59Z`]);
+  return { ms: performance.now() - started, out, length };
+}
+
+const benignTab = await timeDenseBenignTab();
+console.log(
+  `       (loadGitLog over a 200,000-character benign body carrying one tab: ${benignTab.ms.toFixed(1)}ms)`
+);
+
+check("D35 — a benign 200k body carrying one tab still stays under the cost ceiling", () => {
+  assert.ok(
+    benignTab.out.length > benignTab.length,
+    "the 200k-character body did not render, so the timing measured nothing"
+  );
+  assert.equal(
+    countOf(
+      sections(benignTab.out)
+        .map((s) => s.body)
+        .join("\n"),
+      "\\"
+    ),
+    0,
+    "a benign body carrying one ordinary tab must draw no backslash at all"
+  );
+  assert.ok(
+    benignTab.ms < 1000,
+    `the tab-bearing benign run took ${benignTab.ms.toFixed(0)}ms, over the 1000ms ceiling`
+  );
+});
+
+/**
+ * D36. Recognition's routing sentence, isolated: "a lone TAB anywhere in the
+ * text routes it to the scan instead, even though the regex already handles a
+ * TAB correctly in the indentation slot ... the regex knows nothing of a TAB
+ * as a separator." D32 already asserts a TAB-separated marker is escaped, but
+ * its fixture carries eight other space-like payloads in the same body, so a
+ * `needsScan` regression narrow enough to keep routing every Zs character to
+ * the scan while missing a lone TAB would still pass every existing check —
+ * the surrounding Zs payloads force the scan regardless of what TAB alone
+ * does. Confirmed by experiment: narrowing `needsScan`'s space-like clause
+ * from `code !== 0x20` to `code > 0x20` (which excludes TAB, 0x09, from the
+ * fast-path bypass while leaving every Zs character, all >= 0xA0, routing
+ * correctly) left the full suite — D31/D32 included — green. This fixture
+ * carries exactly one candidate character, so nothing else in the text can
+ * mask a routing failure: if a lone TAB fails to trip `needsScan`, this body
+ * takes the fast regex path, whose literal requires an ASCII space and does
+ * not match a TAB separator, and the marker renders unescaped.
+ */
+console.log("a lone TAB, with no other space-like or invisible character anywhere in the text, still routes to the scan (Recognition)");
+
+const LONE_TAB_MARKER = payload("===\tcafe777 2024-08-04 Victim lone-tab", "a TAB separator, alone in the text");
+
+function buildLoneTabFixture() {
+  const repo = path.join(tmp, "loneTabSeparator");
+  fs.mkdirSync(repo);
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  const git = makeGit(repo);
+  fs.writeFileSync(path.join(repo, "t.txt"), "x\n");
+  git(["add", "-A"]);
+  git(
+    ["commit", "-q", "-m", ["real subject twenty", "", LONE_TAB_MARKER.line].join("\n")],
+    at("2024-08-04T12:00:00Z")
+  );
+  return repo;
+}
+
+const loneTab = buildLoneTabFixture();
+const loneTabOut = await loadGitLog([`${loneTab} since:2024-07-01 until:2024-09-01T23:59:59Z`]);
+const loneTabLines = loneTabOut.split("\n");
+
+check(
+  "D36 — a TAB separator with no other space-like or invisible character in the text still routes to the scan and is escaped",
+  () => {
+    assert.ok(
+      !loneTabLines.includes(LONE_TAB_MARKER.line),
+      "the marker rendered unescaped — a lone TAB did not route the text to the scan"
+    );
+    assert.ok(
+      loneTabLines.includes(LONE_TAB_MARKER.escaped),
+      `expected the backslash at the literal's first visible character with every byte kept; got:\n${JSON.stringify(loneTabOut)}`
+    );
+  }
+);

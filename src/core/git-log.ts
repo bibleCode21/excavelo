@@ -586,6 +586,52 @@ function logArgs(repoPath: string, since: string | null, until: string | null): 
   ];
 }
 
+/** The original rule, kept for the fast path below: three leads and a space at a line
+ *  start, optionally indented. Whatever this matches, the scan below must match too —
+ *  they are two notations for one vocabulary, and a third literal or a wider boundary
+ *  set has to be written into both. */
+const MARKER_LINE_RE = /(^|[\v\f\u0085])([ \t]*)(--- |=== )/gm;
+
+function isInvisible(code: number): boolean {
+  return code <= 0x1f ? code !== 0x0a && code !== 0x09 : code === 0x7f || code === 0x85;
+}
+
+function isBreak(code: number): boolean {
+  return (
+    code === 0x0a ||
+    code === 0x0b ||
+    code === 0x0c ||
+    code === 0x0d ||
+    code === 0x85 ||
+    code === 0x2028 ||
+    code === 0x2029
+  );
+}
+
+/** TAB, U+0020, and every Unicode Zs character — the marker's own whitespace,
+ *  in both the indentation slot and the separator slot. U+200B is Cf, not Zs,
+ *  and deliberately excluded (see escapeMarkerLines' docblock). */
+function isSpaceLike(code: number): boolean {
+  return (
+    code === 0x09 ||
+    code === 0x20 ||
+    code === 0xa0 ||
+    code === 0x1680 ||
+    (code >= 0x2000 && code <= 0x200a) ||
+    code === 0x202f ||
+    code === 0x205f ||
+    code === 0x3000
+  );
+}
+
+function needsScan(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (isInvisible(code) || (isSpaceLike(code) && code !== 0x20)) return true;
+  }
+  return false;
+}
+
 /**
  * `--- ` and `=== ` (optionally indented) at the start of a line are reserved
  * for this file's own section headers (`--- landed ...`, `--- confirmed
@@ -609,8 +655,11 @@ function logArgs(repoPath: string, since: string | null, until: string | null): 
  * protects does not read bytes. An invisible character planted *inside* the
  * literal — `"=" + \x01 + "== cafe777 ..."` — breaks the match while still
  * reading as `=== ` to anything that skips it; measured, a forged record built
- * that way is reported as shipped work rather than doubted. Recognition
- * therefore runs per position, over two sets:
+ * that way is reported as shipped work rather than doubted. A character that
+ * merely *looks like* the literal's own whitespace is the same problem from
+ * the other side — a Zs character standing in for the separator or the
+ * indentation reads as a marker to anyone who does not count columns.
+ * Recognition therefore runs per position, over three sets:
  *
  * - INVISIBLE occupies no column: every C0 character but LF and TAB, plus DEL
  *   and NEL. LF is out because it genuinely ends a line for every reader; TAB is
@@ -620,44 +669,32 @@ function logArgs(repoPath: string, since: string | null, until: string | null): 
  *   contributed VT, FF and NEL — now written out, because LS and PS are
  *   invisible in this file's own source and are exactly what a rewrite drops
  *   without noticing.
+ * - SPACE-LIKE reads as the marker's own whitespace: TAB, U+0020, and every
+ *   Unicode Zs character (U+00A0, U+1680, U+2000-U+200A, U+202F, U+205F,
+ *   U+3000). This is what the indentation walk skips and what the literal's
+ *   trailing separator must be — both slots, not one, since a marker indented
+ *   or separated by U+00A0 reads as a marker just as one indented or separated
+ *   by U+0020 does. U+200B (zero-width space) is deliberately excluded: it is
+ *   Cf, not Zs, and unlike a Zs character it renders as nothing rather than as
+ *   ordinary-looking whitespace, so a reader has something anomalous to notice
+ *   — measured, it does not defeat the escape's *reader*, only its old regex.
  *
- * VT, FF, CR and NEL belong to both sets, which is the point rather than a
- * contradiction: read forward they are invisible, read backward they end a line.
- * Deciding that per position is what a canonicalized view cannot do — a view has
- * to pick one role per character, and `"tail" + VT + "=" + VT + "== "` needs both
- * at once. BREAK wins the backward walk, or `"tail" + VT + "=== "` would lose the
- * escape it has today.
+ * VT, FF, CR and NEL belong to both the INVISIBLE and BREAK sets, which is the
+ * point rather than a contradiction: read forward they are invisible, read
+ * backward they end a line. Deciding that per position is what a canonicalized
+ * view cannot do — a view has to pick one role per character, and
+ * `"tail" + VT + "=" + VT + "== "` needs both at once. BREAK wins the backward
+ * walk, or `"tail" + VT + "=== "` would lose the escape it has today.
  *
- * Text carrying no invisible character keeps the original regex, byte for byte
- * and cost for cost — which is every ordinary commit.
+ * Text carrying no INVISIBLE character and no SPACE-LIKE character other than
+ * U+0020 keeps the original regex, byte for byte and cost for cost — which is
+ * every ordinary commit. A lone TAB anywhere in the text routes it to the scan
+ * instead, even though the regex already handles a TAB correctly in the
+ * indentation slot: the two paths must agree on every input, and the regex
+ * knows nothing of a TAB as a separator.
  */
-const MARKER_LINE_RE = /(^|[\v\f\u0085])([ \t]*)(--- |=== )/gm;
-
-function isInvisible(code: number): boolean {
-  return code <= 0x1f ? code !== 0x0a && code !== 0x09 : code === 0x7f || code === 0x85;
-}
-
-function isBreak(code: number): boolean {
-  return (
-    code === 0x0a ||
-    code === 0x0b ||
-    code === 0x0c ||
-    code === 0x0d ||
-    code === 0x85 ||
-    code === 0x2028 ||
-    code === 0x2029
-  );
-}
-
-function hasInvisible(text: string): boolean {
-  for (let i = 0; i < text.length; i++) {
-    if (isInvisible(text.charCodeAt(i))) return true;
-  }
-  return false;
-}
-
 function escapeMarkerLines(text: string): string {
-  if (!hasInvisible(text)) return text.replace(MARKER_LINE_RE, "$1$2\\$3");
+  if (!needsScan(text)) return text.replace(MARKER_LINE_RE, "$1$2\\$3");
 
   // Where the literal's first visible character sits, left to right.
   const cuts: number[] = [];
@@ -665,7 +702,7 @@ function escapeMarkerLines(text: string): string {
     const lead = text.charCodeAt(i);
     if (lead !== 0x2d && lead !== 0x3d) continue;
 
-    // Forward: three of that same character then a space, skipping invisibles.
+    // Forward: three of that same character then a space-like separator, skipping invisibles.
     let end = i;
     let seen = 0;
     while (end < text.length && seen < 3) {
@@ -679,14 +716,14 @@ function escapeMarkerLines(text: string): string {
     }
     if (seen < 3) continue;
     while (end < text.length && isInvisible(text.charCodeAt(end))) end++;
-    if (text.charCodeAt(end) !== 0x20) continue;
+    if (!isSpaceLike(text.charCodeAt(end))) continue;
 
-    // Backward: indentation and invisibles are skipped, a break ends the walk.
+    // Backward: indentation, space-like and invisible characters are skipped, a break ends the walk.
     let back = i - 1;
     while (back >= 0) {
       const code = text.charCodeAt(back);
       if (isBreak(code)) break;
-      if (code === 0x20 || code === 0x09 || isInvisible(code)) back--;
+      if (isSpaceLike(code) || isInvisible(code)) back--;
       else break;
     }
     if (back >= 0 && !isBreak(text.charCodeAt(back))) continue;
@@ -727,8 +764,10 @@ function escapeMarkerLines(text: string): string {
  * - escaping only per piece leaves a literal split *across* two pieces
  *   invisible, since neither half holds `--- `/`=== ` entire — the rejoin pass
  *   is the only place that text exists whole. `rest`'s rejoin is also the only
- *   place a raw `\x01` re-enters a rendered line at all: the separators before
- *   it become this template's own newlines.
+ *   place a raw `\x01` re-enters a rendered line at all: of the four separators
+ *   before it, `hash`→`date` and `date`→`author` become this template's own
+ *   spaces, and `author`→`subject` and `subject`→`rest[0]` become its newlines,
+ *   which no marker spans.
  *
  * Escaping twice does not double up: the first pass puts its backslash directly
  * left of the literal, and a backslash stops the second pass's backward walk.
@@ -1023,10 +1062,12 @@ async function loadConfirmedSections(
     }
     if (body === null) continue;
     // Escape the interpolations, never the header itself — it opens with the
-    // very syntax this escapes. `base` and `display` are ref names, which git's
-    // syntax rules already keep free of spaces and control characters, but
-    // running them through keeps this file's stated rule true with no exception
-    // a reader has to go verify.
+    // very syntax this escapes. `base` and `display` are ref names, and git's
+    // syntax rules keep them free of ASCII control characters and a literal
+    // U+0020 — but not of Unicode Zs, LS, or PS, which the space-like widening
+    // now recognizes as marker whitespace and boundaries. Measured against git
+    // 2.50.1, a ref opened by LS and separated by U+00A0 is accepted, so this
+    // call site is reachable, not merely defensive.
     const header = confirmedHeader(base, branch.display);
     sections.push(`${header}${body ? `\n${body}` : ""}`);
   }
