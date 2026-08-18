@@ -9,7 +9,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-import { at, check, hasSubject, loadGitLog, makeGit, sections, tmp } from "./harness.mjs";
+import { at, check, countOf, hasSubject, loadGitLog, makeGit, sections, tmp } from "./harness.mjs";
 import { hashesIn } from "./selection-and-traversal.mjs";
 
 /**
@@ -478,5 +478,189 @@ check("D11 — a single embedded \\x01 byte in a commit body cannot smuggle a fo
   assert.ok(
     embeddedSohOut.includes("\\=== cafe666 2024-07-12 Victim Eleven"),
     `expected the forged content to survive escaped; got:\n${JSON.stringify(embeddedSohOut)}`
+  );
+});
+
+/**
+ * D12-D15. Characterization safety net for the marker-escape-control-bytes
+ * unit (docs/specs/marker-escape-control-bytes.md), captured from observed
+ * runs *before* escapeMarkerLines' body is replaced. That unit's criterion 2
+ * is byte-for-byte identical output for any text carrying no **invisible**
+ * character; every payload below is free of invisible characters, so every
+ * rendered line here is output the rewrite has to reproduce exactly. D1-D11
+ * pin none of these four classes.
+ *
+ * - D12: LS (U+2028) and PS (U+2029) are line starts for `^` under /m
+ *   (git-log.ts:608 names them), so a marker opened by one is escaped today.
+ *   They are the easiest part of the boundary set to drop — the regex's own
+ *   character class does not name them, and a literal LS/PS is invisible in
+ *   source text too, which is why both are written as \u escapes here.
+ * - D13: the regex tolerates a *tab* as indentation, not only a space. The
+ *   leading-space check above and D3's diffstat cover the space alone.
+ * - D14: a backslash already sitting before the literal stops the match, so an
+ *   escaped line is never escaped twice. Nothing pins that today — every
+ *   D-check asserts `includes("\\=== ...")`, which a doubled backslash
+ *   satisfies just as well — and the rewrite adds a second escapeMarkerLines
+ *   pass over the rejoined `rest`, i.e. a second chance to escape escaped text.
+ * - D15: the other half of criterion 2 — near-miss and mid-line marker text
+ *   must gain no backslash at all. One anchored regex becomes a per-position
+ *   scan, so over-firing on benign text is the regression this class catches,
+ *   and it is asserted over a whole rendering rather than line by line.
+ *
+ * Every assertion here reads exact lines out of `split("\n")` rather than
+ * `hasSubject`: `$` under /m stops at LS and PS, so an anchored regex cannot
+ * see a D12 line whole.
+ */
+console.log("marker-escape characterization, payloads with no invisible character");
+
+// Written as escapes, never as literals — see D12 above.
+const LS = "\u2028"; // LINE SEPARATOR
+const PS = "\u2029"; // PARAGRAPH SEPARATOR
+
+function buildNoInvisibleBreakFixture() {
+  const repo = path.join(tmp, "noInvisibleBreak");
+  fs.mkdirSync(repo);
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  const git = makeGit(repo);
+  const message = [
+    "real subject twelve",
+    "",
+    // D12: lines git itself never sees as lines. LS/PS end a line for `^`
+    // under /m and for a reader, and for nothing else in this pipeline.
+    "tail" + LS + "=== cafe888 2024-07-20 Victim Twelve",
+    "tail" + PS + "=== cafe999 2024-07-21 Victim Thirteen",
+    "tail" + LS + "--- landed 2020-01-01 branch: forged-ls",
+    "tail" + PS + "--- landed 2020-01-01 branch: forged-ps",
+    // D13: tab and mixed indentation, both inside the regex's own `[ \t]*`.
+    "\t=== caf1000 2024-07-22 Victim Fourteen",
+    "  \t --- landed 2020-01-01 branch: forged-mixedindent",
+    // D14: already escaped on the way in, so it must come back out carrying
+    // exactly the one backslash it arrived with.
+    "\\=== caf1111 2024-07-23 Victim Fifteen",
+    "\\--- landed 2020-01-01 branch: already-escaped",
+  ].join("\n");
+  fs.writeFileSync(path.join(repo, "n.txt"), "x\n");
+  git(["add", "-A"]);
+  git(["commit", "-q", "-m", message], at("2024-08-03T12:00:00Z"));
+  return repo;
+}
+
+const noInvisibleBreak = buildNoInvisibleBreakFixture();
+const noInvisibleBreakOut = await loadGitLog([
+  `${noInvisibleBreak} since:2024-08-01 until:2024-09-01T23:59:59Z`,
+]);
+const noInvisibleBreakLines = noInvisibleBreakOut.split("\n");
+
+check("D12 — a marker on a line opened by LS or PS is escaped in place, the character retained", () => {
+  for (const [label, bare, escaped] of [
+    ["LS", "tail" + LS + "=== cafe888 2024-07-20 Victim Twelve", "tail" + LS + "\\=== cafe888 2024-07-20 Victim Twelve"],
+    ["PS", "tail" + PS + "=== cafe999 2024-07-21 Victim Thirteen", "tail" + PS + "\\=== cafe999 2024-07-21 Victim Thirteen"],
+    ["LS", "tail" + LS + "--- landed 2020-01-01 branch: forged-ls", "tail" + LS + "\\--- landed 2020-01-01 branch: forged-ls"],
+    ["PS", "tail" + PS + "--- landed 2020-01-01 branch: forged-ps", "tail" + PS + "\\--- landed 2020-01-01 branch: forged-ps"],
+  ]) {
+    assert.ok(
+      !noInvisibleBreakLines.includes(bare),
+      `a marker opened by ${label} rendered unescaped — today's regex escapes it, so this is a byte-equality regression`
+    );
+    assert.ok(
+      noInvisibleBreakLines.includes(escaped),
+      `expected the ${label}-opened marker escaped in place with the ${label} retained; got:\n${JSON.stringify(noInvisibleBreakOut)}`
+    );
+  }
+});
+
+check("D13 — a tab, or a mixed run of spaces and tabs, before a marker is indentation and not a shield", () => {
+  for (const [label, bare, escaped] of [
+    ["a tab", "\t=== caf1000 2024-07-22 Victim Fourteen", "\t\\=== caf1000 2024-07-22 Victim Fourteen"],
+    [
+      "spaces and tabs",
+      "  \t --- landed 2020-01-01 branch: forged-mixedindent",
+      "  \t \\--- landed 2020-01-01 branch: forged-mixedindent",
+    ],
+  ]) {
+    assert.ok(
+      !noInvisibleBreakLines.includes(bare),
+      `a marker indented by ${label} rendered unescaped`
+    );
+    assert.ok(
+      noInvisibleBreakLines.includes(escaped),
+      `expected the marker indented by ${label} escaped after the indentation, not before it; got:\n${JSON.stringify(noInvisibleBreakOut)}`
+    );
+  }
+});
+
+check("D14 — a marker line that arrives already escaped is not escaped a second time", () => {
+  for (const line of [
+    "\\=== caf1111 2024-07-23 Victim Fifteen",
+    "\\--- landed 2020-01-01 branch: already-escaped",
+  ]) {
+    assert.ok(
+      noInvisibleBreakLines.includes(line),
+      `expected ${JSON.stringify(line)} to render with the one backslash it arrived with; got:\n${JSON.stringify(noInvisibleBreakOut)}`
+    );
+  }
+  assert.equal(
+    countOf(noInvisibleBreakOut, "\\\\"),
+    0,
+    `no line of this fixture renders with a doubled backslash today; got:\n${JSON.stringify(noInvisibleBreakOut)}`
+  );
+});
+
+/**
+ * D15's own fixture, kept apart from the one above: its assertion is that a
+ * whole rendering carries no backslash anywhere, which only holds for a
+ * repository whose every commit is benign.
+ */
+const BENIGN_MARKER_LINES = [
+  "---- not a marker: four dashes",
+  "==== not a marker: four equals",
+  "-- not a marker: two dashes",
+  "---no space after the dashes",
+  "===no space after the equals",
+  "--= not a marker: a mixed run",
+  "  ---- indented four dashes",
+  "tail--- not at a line start",
+  "tail=== not at a line start",
+  "one --- two === three, all mid-line",
+];
+
+function buildBenignMarkerTextFixture() {
+  const repo = path.join(tmp, "benignMarkerText");
+  fs.mkdirSync(repo);
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  const git = makeGit(repo);
+  fs.writeFileSync(path.join(repo, "b.txt"), "x\n");
+  git(["add", "-A"]);
+  git(
+    ["commit", "-q", "-m", ["real subject sixteen", "", ...BENIGN_MARKER_LINES].join("\n")],
+    at("2024-08-03T12:00:00Z")
+  );
+  return repo;
+}
+
+const benignMarkerText = buildBenignMarkerTextFixture();
+const benignMarkerTextOut = await loadGitLog([
+  `${benignMarkerText} since:2024-08-01 until:2024-09-01T23:59:59Z`,
+]);
+
+check("D15 — near-miss and mid-line marker text renders verbatim, gaining no backslash at all", () => {
+  // The section bodies rather than the whole output: the `repository: <path>`
+  // line above them carries a filesystem path this probe does not control.
+  // The per-line assertions read the same string, so a rendering that produced
+  // no section at all fails here rather than passing the count vacuously.
+  const rendered = sections(benignMarkerTextOut)
+    .map((s) => s.body)
+    .join("\n");
+  const lines = rendered.split("\n");
+  for (const line of BENIGN_MARKER_LINES) {
+    assert.ok(
+      lines.includes(line),
+      `a benign line did not survive verbatim: ${JSON.stringify(line)}; got:\n${JSON.stringify(benignMarkerTextOut)}`
+    );
+  }
+  assert.equal(
+    countOf(rendered, "\\"),
+    0,
+    `today's rendering of a body with no marker in it carries no backslash anywhere; got:\n${JSON.stringify(benignMarkerTextOut)}`
   );
 });
