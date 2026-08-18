@@ -1,6 +1,7 @@
 ---
 status: confirmed
 ceremony: trivial
+approved-commit: e4026335345fae70f0db007d9488ca82ee21166f
 ---
 # GitHub Actions: pin the four actions to a commit SHA, not a mutable tag
 
