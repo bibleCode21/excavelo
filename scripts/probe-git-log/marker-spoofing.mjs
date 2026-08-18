@@ -1162,16 +1162,6 @@ check("D25 — confirmedHeader escapes a split literal in the name a merge subje
   );
 });
 
-/**
- * D26 records what the contract records about confirmedHeader's *other* call
- * site (git-log.ts:922 in the contract's numbering): it is handed
- * `branch.display`, a real ref name, and git
- * refuses to make a ref carrying SOH, DEL or VT — or the space every marker
- * literal must end with — so no marker can form there at all. The check measures
- * that refusal rather than asserting an escape that has nothing to fire on: if a
- * future git accepted any of these, the recorded reason is stale and that arm
- * needs a payload of its own.
- */
 const refFormatAccepts = (name) => {
   try {
     execFileSync("git", ["check-ref-format", `refs/heads/${name}`], { stdio: "ignore" });
