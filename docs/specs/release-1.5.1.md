@@ -12,12 +12,17 @@ Cut 1.5.1. `1.5.0` shipped on 2026-08-02; the 61 commits since are entirely inte
 Zs whitespace (`marker-escape-control-bytes`), whose own confirmed contract states no CHANGELOG
 entry because output is byte-identical for every commit message that is not itself an attack —
 and everything else is CI/build-pipeline and dev-script work (the four GitHub Actions moved off
-the deprecated Node 20 runtime and then onto exact-commit pins with Dependabot, `probe-git-log.mjs`
-was split into modules, a probe-argv-limit bug was fixed, and several doc/test-pin and
-comment/dead-code-cleanup batches landed) — verified by reading `git diff 1.5.0..main --stat --
-src/` (one file) and auditing every other touched path by category, not assumed from commit
-subjects. PATCH rather than MINOR: nothing in `manifest.json`'s built output differs for any
-legitimate use. This is the corrected axis deferred-followups item 25 named: `release-1.5.0`'s
+the deprecated Node 20 runtime and then onto exact-commit pins with Dependabot; `ci.yml` now runs
+all six probes instead of one of six and `release.yml` now refuses to publish an empty-bodied
+release, both from `release-metadata-invariants`, which merged after the 1.5.0 tag was cut and so
+falls inside this range; `probe-git-log.mjs` was split into modules, a probe-argv-limit bug was
+fixed, and several doc/test-pin and comment/dead-code-cleanup batches landed) — verified by
+reading `git diff 1.5.0..main --stat -- src/` (one file) and auditing every other touched path by
+category, not assumed from commit subjects. The first draft of this audit missed
+`release-metadata-invariants` because it is timestamped after the 1.5.0 tag rather than after the
+1.5.0 merge commit; the feature-complete design review caught it, and this paragraph is the fix,
+not a silent correction. PATCH rather than MINOR: nothing in the plugin's build output (`main.js`)
+differs for any legitimate use. This is the corrected axis deferred-followups item 25 named: `release-1.5.0`'s
 own criterion asked whether the CHANGELOG body was "unchanged" from a draft, which is answerable
 without checking it against what the tag range actually shipped, and its panel round caught three
 factual errors that axis could not have caught by construction. This contract's acceptance
