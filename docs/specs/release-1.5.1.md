@@ -19,9 +19,8 @@ falls inside this range; `probe-git-log.mjs` was split into modules, a probe-arg
 fixed, and several doc/test-pin and comment/dead-code-cleanup batches landed) — verified by
 reading `git diff 1.5.0..main --stat -- src/` (one file) and auditing every other touched path by
 category, not assumed from commit subjects. The first draft of this audit missed
-`release-metadata-invariants` because it is timestamped after the 1.5.0 tag rather than after the
-1.5.0 merge commit; the feature-complete design review caught it, and this paragraph is the fix,
-not a silent correction. PATCH rather than MINOR: nothing in the plugin's build output (`main.js`)
+`release-metadata-invariants`; the feature-complete design review caught it, and this paragraph is
+the fix, not a silent correction. PATCH rather than MINOR: nothing in the plugin's build output (`main.js`)
 differs for any legitimate use. This is the corrected axis deferred-followups item 25 named: `release-1.5.0`'s
 own criterion asked whether the CHANGELOG body was "unchanged" from a draft, which is answerable
 without checking it against what the tag range actually shipped, and its panel round caught three
