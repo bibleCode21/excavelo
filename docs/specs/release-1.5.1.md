@@ -1,7 +1,7 @@
 ---
 status: confirmed
 ceremony: trivial
-approved-commit: 99d9f29a87f2004e55d5a93aacfc33b543e16f8d
+approved-commit: 9e20a3ac713a4587a2620b43ab7a3daaaf0eb2d0
 ---
 # release-1.5.1
 
