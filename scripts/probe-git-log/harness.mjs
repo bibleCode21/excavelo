@@ -93,9 +93,27 @@ function loadModule() {
   return createRequire(import.meta.url)(out);
 }
 
+/**
+ * Linux caps a single argv/envp element at MAX_ARG_STRLEN (32 pages, 131072
+ * bytes) — macOS has no such per-argument limit, which is why a fixture
+ * building a 200k-character `-m` message runs locally and throws `spawnSync
+ * git E2BIG` only in CI. Anything under that ceiling still goes straight
+ * through as an argument; a message over it is written to a file and passed
+ * as `-F` instead, which `git commit` and `git merge` both accept identically.
+ */
+const MAX_ARGV_MESSAGE = 100_000;
+
 function makeGit(repo) {
-  return (args, env = {}) =>
-    execFileSync(
+  return (args, env = {}) => {
+    const rewritten = [...args];
+    const mIndex = rewritten.indexOf("-m");
+    const message = rewritten[mIndex + 1];
+    if (mIndex !== -1 && typeof message === "string" && message.length > MAX_ARGV_MESSAGE) {
+      const file = path.join(tmp, `${path.basename(repo)}.msg`);
+      fs.writeFileSync(file, message);
+      rewritten.splice(mIndex, 2, "-F", file);
+    }
+    return execFileSync(
       "git",
       [
         "-C",
@@ -106,10 +124,11 @@ function makeGit(repo) {
         "user.email=probe@example.com",
         "-c",
         "commit.gpgsign=false",
-        ...args,
+        ...rewritten,
       ],
       { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ...env } }
     );
+  };
 }
 
 /** Author and committer date; one argument sets both. */
