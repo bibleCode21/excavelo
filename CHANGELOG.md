@@ -5,6 +5,17 @@ All notable changes to ExcaVelo are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1] - 2026-08-18
+
+### Changed
+
+- **Internal maintenance release — no functional change to the plugin.** CI and the release
+  pipeline: the four GitHub Actions moved off the deprecated Node 20 runtime and now pin to an
+  exact commit rather than a movable version tag, with a new Dependabot config keeping those pins
+  current; `ci.yml` now runs all six probe scripts on every push instead of one of six; and
+  `release.yml` now fails before publishing instead of creating an empty-bodied GitHub Release
+  when a tag has no matching CHANGELOG section.
+
 ## [1.5.0] - 2026-08-02
 
 ### Added
