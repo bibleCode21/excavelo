@@ -1,6 +1,7 @@
 ---
 status: confirmed
 ceremony: standard
+approved-commit: 85492457346b22683aad87f7251832121d0239bb
 ---
 # `[!git]`: a marker literal split by an invisible byte is escaped, not passed through
 
