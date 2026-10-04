@@ -172,6 +172,7 @@ Pre-submission checklist lives in `README.md` (user-facing). Developer checklist
 
 - [ ] `manifest.json` matches `package.json` version
 - [ ] `versions.json` lists the version with its minAppVersion
+- [ ] That `minAppVersion` names an Obsidian release already on the public channel. The `scripts/probe-*.mjs` probes check only the files: `manifest.json` and `versions.json` must agree, and `probe-settings-tab.mjs` pins the current value, so changing it edits that pin too. None checks that the release exists; 1.4.2 and 1.4.3 shipped pointing at an unreleased one (`CHANGELOG.md`, 1.4.4).
 - [ ] `pnpm build` succeeds with no TypeScript errors
 - [ ] Release artifacts on GitHub: `main.js`, `manifest.json`, `styles.css`
 - [ ] Submit via [community.obsidian.md](https://community.obsidian.md) (Plugins -> New plugin, link this GitHub repo). The legacy `obsidian-releases` PR path is deprecated.
@@ -184,3 +185,5 @@ Pre-submission checklist lives in `README.md` (user-facing). Developer checklist
   `pnpm-workspace.yaml` allows esbuild's postinstall (pnpm 10+ blocks dependency
   build scripts by default). `.npmrc` sets `auto-install-peers=true`.
 - **Lockfile**: `pnpm-lock.yaml`. Commit it. Do not also commit `package-lock.json`.
+- **Commits**: English, with a Conventional Commits type prefix (`docs:`, `fix(probe):`,
+  `ci:`, `release:`). Each change lives on its own `feature/<name>` branch.
